@@ -9,6 +9,9 @@ import {
   softDeleteUserAccount,
   getTopSharers,
   getAllUsers,
+  makeAdmin,
+  toggleAdminRole,
+
 } from "../controllers/userController.js";
 
 // Imported Middlewares
@@ -29,6 +32,8 @@ router.patch(
   updateUserData
 );
 router.delete("/:userId/soft-delete", authenticateUser, softDeleteUserAccount);
+router.patch("/:userId/make-admin", makeAdmin);
+router.patch("/:userId/toggle-admin", toggleAdminRole);
 
 // Fetch Recipes From a Specific User
 router.get("/:userId/recipes", authenticateUser, getUserRecipes);

@@ -62,3 +62,44 @@ export const getTopSharers = expressAsyncHandler(async (req, res) => {
     topSharers,
   });
 });
+
+
+// Promote a user to admin
+export const makeAdmin = expressAsyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  // Ensure the user is not already an admin
+  if (user.role === "admin") {
+    return res.status(400).json({ message: "User is already an admin" });
+  }
+
+  user.role = "admin"; // Promote to admin
+  await user.save();
+  res.status(200).json({ message: "User promoted to admin successfully" });
+});
+
+// Toggle user role between 'admin' and 'user'
+export const toggleAdminRole = expressAsyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  // Toggle role between 'admin' and 'user'
+  if (user.role === "admin") {
+    user.role = "user"; // Demote to regular user
+  } else {
+    user.role = "admin"; // Promote to admin
+  }
+
+  await user.save();
+  res.status(200).json({ message: `User role updated to ${user.role}` });
+});
+

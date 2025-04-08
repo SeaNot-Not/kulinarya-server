@@ -548,5 +548,30 @@ userSchema.statics.getAllUsers = async function () {
   return users;
 };
 
+
+userSchema.statics.makeAdmin = async function (userId) {
+  const user = await this.findById(userId);
+  if (!user) throw new Error("User not found");
+
+  // Ensure the user is not already an admin
+  if (user.role === "admin") {
+    throw new Error("User is already an admin");
+  }
+
+  user.role = "admin"; // Promote to admin
+  await user.save();
+  return user;
+};
+
+userSchema.statics.toggleAdmin = async function (userId) {
+  const user = await this.findById(userId);
+  if (!user) throw new Error("User not found");
+
+  // Toggle between 'admin' and 'user'
+  user.role = user.role === "admin" ? "user" : "admin";
+  await user.save();
+  return user;
+};
+
 const User = model("User", userSchema);
 export default User;
