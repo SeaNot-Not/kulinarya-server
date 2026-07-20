@@ -60,11 +60,3 @@ export const softDeleteNotification = expressAsyncHandler(async (req, res) => {
     message: "Notification successfully soft deleted",
   });
 });
-
-// ? ----------------------------------------------------------------
-
-// ? I don't think this is needed because we have a centralized notification handler for moderation, reactions, and comments.
-// export const createNotification = expressAsyncHandler(async (req, res) => {
-//   const notification = await Notification.createNotification(req.body);
-//   res.status(201).json(notification);
-// });
