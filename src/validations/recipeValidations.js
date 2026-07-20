@@ -48,6 +48,7 @@ const recipeBaseSchema = z.object({
     .trim()
     .optional(),
 
+  // TODO: Add Formating Ingredients Names
   ingredients: z
     .array(
       z.object({

@@ -204,7 +204,7 @@ userSchema.statics.login = async function (email, password) {
   const isPasswordMatch = await bcrypt.compare(password, user.password);
   if (!isPasswordMatch) throw new CustomError("Wrong Password!", 400);
 
-  return user;
+  return user; // ✅ This is correct
 };
 
 // Getting Auth User Details Static Method
@@ -417,7 +417,7 @@ userSchema.statics.getUserRecipesList = async function (req) {
     query.originProvince = { $regex: origin, $options: "i" };
   }
 
-  console.log("🔍 Backend Query:", JSON.stringify(query, null, 2));
+  console.log("🔍 Backend Query:", JSON.stringify(query, null, 2)); // ✅ Debugging
 
   // **Set Sorting Order**
   const sortOption =

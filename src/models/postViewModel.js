@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import CustomError from "../utils/customError.js";
 import { trackPostViewSchema } from "../validations/postViewValidation.js";
 
+
 // ---------------------------------------------------------------------------
 
 const PostViewSchema = new Schema(
@@ -90,6 +91,9 @@ PostViewSchema.statics.getPostViews = async function (req) {
   return { recipeId, views };
 };
 
+
+
+
 PostViewSchema.statics.getTopPostViews = async function () {
   const startOfMonth = new Date(new Date().setDate(1)); // First day of the current month
   const endOfMonth = new Date(); // Today's date
@@ -98,42 +102,39 @@ PostViewSchema.statics.getTopPostViews = async function () {
   const totalPostViewsResult = await this.aggregate([
     {
       $match: {
-        createdAt: { $gte: startOfMonth, $lte: endOfMonth },
-      },
+        createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+      }
     },
     {
       $group: {
         _id: null, // Group all views together
-        totalPostViews: { $sum: 1 },
-      },
-    },
+        totalPostViews: { $sum: 1 }
+      }
+    }
   ]);
 
-  const totalPostViews =
-    totalPostViewsResult.length > 0
-      ? totalPostViewsResult[0].totalPostViews
-      : 0;
+  const totalPostViews = totalPostViewsResult.length > 0 ? totalPostViewsResult[0].totalPostViews : 0;
 
   // Step 2: Get the top viewed posts
   const topViewedPosts = await this.aggregate([
     {
       $match: {
-        createdAt: { $gte: startOfMonth, $lte: endOfMonth },
-      },
+        createdAt: { $gte: startOfMonth, $lte: endOfMonth }
+      }
     },
     {
       $group: {
         _id: "$fromPost",
-        totalViews: { $sum: 1 },
-      },
+        totalViews: { $sum: 1 }
+      }
     },
     {
       $lookup: {
         from: "recipes",
         localField: "_id",
         foreignField: "_id",
-        as: "recipe",
-      },
+        as: "recipe"
+      }
     },
     { $unwind: "$recipe" },
     {
@@ -141,8 +142,8 @@ PostViewSchema.statics.getTopPostViews = async function () {
         from: "users",
         localField: "recipe.byUser",
         foreignField: "_id",
-        as: "user",
-      },
+        as: "user"
+      }
     },
     { $unwind: "$user" },
     {
@@ -150,35 +151,41 @@ PostViewSchema.statics.getTopPostViews = async function () {
         from: "comments",
         localField: "_id",
         foreignField: "fromPost",
-        as: "comments",
-      },
+        as: "comments"
+      }
     },
     {
       $lookup: {
         from: "reactions",
         localField: "_id",
         foreignField: "fromPost",
-        as: "reactions",
-      },
+        as: "reactions"
+      }
     },
     {
       $project: {
         _id: "$recipe._id",
         title: "$recipe.title",
-        mainPictureUrl: "$recipe.mainPictureUrl",
+        mainPictureUrl: "$recipe.mainPictureUrl", // ✅ Ensure this is included
         totalViews: 1,
         totalComments: { $size: "$comments" },
         totalReactions: { $size: "$reactions" },
         "byUser.firstName": "$user.firstName",
-        "byUser.lastName": "$user.lastName",
-      },
+        "byUser.lastName": "$user.lastName"
+      }
     },
     { $sort: { totalViews: -1 } },
-    { $limit: 10 },
+    { $limit: 10 }
   ]);
 
   return { totalPostViews, topViewedPosts };
 };
+
+
+
+
+
+
 
 const PostView = model("PostView", PostViewSchema);
 export default PostView;
