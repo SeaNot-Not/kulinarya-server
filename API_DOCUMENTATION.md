@@ -1,1348 +1,410 @@
-# Kulinarya API Documentation
+# API reference
 
-## 📋 Overview
+Documentation review date: 2026-11-09.
 
-This document provides comprehensive documentation for the Kulinarya Recipe Sharing Platform API. The API follows RESTful conventions and uses JSON for request/response formats.
+The default local base URL is `http://localhost:4000/api`.
+The tables below use paths relative to `/api`.
+Read [src/routes](src/routes), [src/controllers](src/controllers), and [src/models](src/models) for the current implementation.
 
-## 🔗 Base URL
-```
-http://localhost:4000/api
-```
+## Request and access rules
 
-## 📊 Response Format
+Send JSON bodies with `Content-Type: application/json`, except for media requests.
+Send media requests as `multipart/form-data`. Let the HTTP client set the multipart boundary.
+Replace path parameters, such as `:recipeId`, with actual document IDs.
 
-### Success Response
+Protected routes read the `kulinarya_auth_token` cookie. They do not read a bearer token from the `Authorization` header.
+After login, keep the response cookie for later requests. Browser clients must permit credentials.
+
+The access terms in this guide have these meanings:
+
+| Term | Meaning |
+| --- | --- |
+| Public | The route has no authentication middleware. |
+| Optional cookie | A missing cookie is permitted. An invalid cookie still causes an error. |
+| User | The route requires a valid authentication cookie. |
+| Moderator | The route requires a valid cookie and the `admin` or `creator` role. |
+| Owner | The model also compares the current user with the record owner. |
+
+These terms describe source checks. They do not confirm a security assessment.
+Additional model checks and known gaps appear below.
+
+## Responses
+
+Most controllers return `success`, `statusCode`, and `message` with endpoint-specific data fields.
+There is no common `data` field across all endpoints.
+For example, recipe creation returns `result`. Approved recipe lists return `recipes` and `pagination`.
+
+The error middleware usually returns this structure:
+
 ```json
 {
-  "message": "Operation successful",
-  "data": { /* response data */ }
+  "success": false,
+  "statusCode": 400,
+  "message": "Validation Error",
+  "errors": [{ "path": "title", "message": "Example validation message" }]
 }
 ```
 
-### Error Response
-```json
+The `errors` field is optional. Its item structure differs between Zod and Mongoose errors.
+The fallback 404 response is `{ "error": "Not Found" }`.
+`verify-reset-token` returns `success` and `message` without `statusCode`.
+The user list returns an array. Overall comment and reaction endpoints return count objects.
+The feature toggle returns `message` and `recipe`.
+
+| Status | Typical use |
+| --- | --- |
+| `200` | Retrieval, update, or successful authentication. |
+| `201` | Registration, creation, or a new reaction. |
+| `400` | Invalid input or a rejected operation. |
+| `401` | Missing token, invalid token, or some ownership failures. |
+| `403` | Role failure or some prohibited operations. |
+| `404` | Missing record or unknown route. |
+| `429` | A duplicate visit or view within the counting interval. |
+| `500` | An unexpected server or external service error. |
+
+## Authentication
+
+Source: [authRoutes.js](src/routes/authRoutes.js), [authController.js](src/controllers/authController.js), and [userModel.js](src/models/userModel.js).
+
+| Method | Path | Access | Request |
+| --- | --- | --- | --- |
+| `POST` | `/auth/register` | Public | JSON: `email`, `password`, `firstName`, `lastName`. |
+| `GET` | `/auth/verify-email` | Public | Query: `token`. |
+| `POST` | `/auth/resend-verification` | Public | JSON: `email`. |
+| `POST` | `/auth/login` | Public | JSON: `email`, `password`. |
+| `POST` | `/auth/logout` | Public | No body. Clears the cookie. |
+| `GET` | `/auth/user-details` | User | No body. |
+| `POST` | `/auth/forgot-password` | Public | JSON: `email`. |
+| `POST` | `/auth/reset-password` | Public | Query: `token`. JSON: `newPassword`. |
+| `POST` | `/auth/verify-reset-token` | Public | JSON: `token`. |
+
+Registration requires a password of 8 to 100 characters.
+The password must contain an uppercase letter, a lowercase letter, a number, and a special character.
+First and last names require at least two characters.
+Read [userValidations.js](src/validations/userValidations.js) for the full field rules.
+
+Registration sends a verification email and sets a cookie after account creation.
+Login sets a seven-day cookie and returns `data.user` with `_id`, `email`, and `isEmailVerified`.
+Login does not reject an unverified account.
+Email verification tokens expire after one hour. Password reset tokens expire after 15 minutes.
+
+The mail attempt model permits three attempts per email and request type per server calendar day.
+It applies a five-minute interval between accepted attempts.
+These checks apply to verification resends and password reset requests. They are not a general API request limit.
+
+`GET /auth/user-details` returns `user` at the top level.
+It also returns `canPostRecipe`, which is true when the pending moderation count is less than three.
+The recipe creation method does not enforce this limit.
+
+### Login example
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
 {
-  "error": "Error message",
-  "statusCode": 400
+  "email": "reader@example.com",
+  "password": "ReplaceWithYourTestPassword"
 }
 ```
 
-## 🔐 Authentication
+Use an account from the test database. Do not use the example password as an account credential.
 
-All authenticated endpoints require a valid JWT token stored in an HTTP-only cookie named `kulinarya_auth_token`.
+## Users
 
-### Authentication Flow
-1. User registers or logs in
-2. Server sets `kulinarya_auth_token` cookie
-3. Subsequent requests automatically include the cookie
-4. Middleware validates the token on each request
+Source: [userRoutes.js](src/routes/userRoutes.js) and [userModel.js](src/models/userModel.js).
 
-## 📋 API Endpoints
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `GET` | `/users/all` | User | Returns a user array. No role check is installed. |
+| `GET` | `/users/top-sharers` | Public | Returns `topSharers`. |
+| `GET` | `/users/:userId` | User | Returns `user`. |
+| `PATCH` | `/users/:userId/update` | User | Profile fields and optional `profilePictureUrl` file. |
+| `DELETE` | `/users/:userId/soft-delete` | User | No body. See the deletion limits below. |
+| `GET` | `/users/:userId/recipes` | User | Returns `userRecipes` and `totalRecipes`. |
+| `PATCH` | `/users/:userId/change-password` | User, owner | JSON: `currentPassword`, `newPassword`. |
 
-### Authentication
+Use multipart form data for a profile picture. The file field is named `profilePictureUrl`.
+The update schema permits `firstName`, `middleName`, `lastName`, `bio`, `profilePictureUrl`, `password`, `role`, `isEmailVerified`, and `deletedAt`.
+This list describes the current schema. The model does not compare `:userId` with the authenticated user for profile updates.
+It also does not apply a role check to those updates.
 
-#### Register User
-**POST** `/auth/register`
+The user list returns names, email, role, and creation time for nondeleted users.
+The profile retrieval method returns email, names, picture URL, and biography.
+The top sharer query returns up to five users ranked by approved recipe count.
 
-**Request Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "securePassword123",
-  "firstName": "John",
-  "lastName": "Doe",
-  "middleName": "Michael" // Optional
-}
+The deletion model rejects self-deletion and deletion of an `admin` account.
+It does not enforce an administrator role for the caller.
+Do not describe account deletion as an administrator-only or self-service function.
+
+The user recipe list accepts `search`, `origin`, `category`, `sortOrder`, `page`, and `limit`.
+Its defaults are `sortOrder=newest`, `page=1`, and `limit=10`.
+It excludes deleted recipes but does not apply an approved-only filter.
+
+## Recipes
+
+Source: [recipeRoutes.js](src/routes/recipeRoutes.js) and [recipeModel.js](src/models/recipeModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `POST` | `/recipes` | User | Multipart recipe fields. Returns the recipe in `result`. |
+| `PATCH` | `/recipes/:recipeId` | User, owner | Multipart recipe fields. Returns `result`. |
+| `DELETE` | `/recipes/:recipeId/soft-delete` | User, owner | Sets `deletedAt`. Returns `result`. |
+| `PATCH` | `/recipes/:recipeId/toggle-feature` | Moderator | No body. Only approved recipes can be featured. |
+| `GET` | `/recipes/pending` | Moderator | Returns `pendingRecipesData`, `totalPendingRecipes`, and `pagination`. |
+| `GET` | `/recipes/approved` | Public | Returns `recipes`, `totalApprovedRecipes`, and `pagination`. |
+| `GET` | `/recipes/featured` | Public | Returns `featuredRecipesData`, `totalFeaturedRecipes`, `page`, and `limit`. |
+| `GET` | `/recipes/top-engaged` | Public | Returns `topEngagedRecipes`. |
+| `GET` | `/recipes/approved/:recipeId` | Optional cookie | Returns `recipe`. Includes the user reaction when authenticated. |
+| `GET` | `/recipes/edit/:recipeId` | User | Returns `recipe`. The ownership condition needs correction. |
+
+`GET /api/recipes` and `GET /api/recipes/:recipeId` are not defined routes.
+Use `/approved` and `/approved/:recipeId` for public reads.
+
+### Recipe request fields
+
+| Field | Format and rule |
+| --- | --- |
+| `title` | Text. At least two characters. |
+| `foodCategory` | One of `dishes`, `soup`, `drinks`, `desserts`, or `pastries`. |
+| `originProvince` | Nonempty text. |
+| `description` | Optional text. Maximum 2,000 characters. |
+| `ingredients` | JSON string. One to 50 ingredient objects. |
+| `procedure` | JSON string. Supply one to 30 step objects. |
+| `mainPicture` | Optional file. At most one. |
+| `additionalPictures` | Optional files. At most five per request. |
+| `video` | Optional MP4 file. At most one. |
+| `additionalPicturesUrls` | Update only: JSON string of existing picture URLs to retain. |
+
+The server supplies the author ID from the cookie.
+Each ingredient has a string `quantity`, an allowed `unit`, and a nonempty `name`.
+Allowed units are `g`, `kg`, `ml`, `l`, `cup`, `tbsp`, `tsp`, and `pcs`.
+Each step has an integer `stepNumber` of at least one and a `content` string of at most 500 characters.
+
+Example text values for multipart fields:
+
+```text
+title: Vegetable Soup
+foodCategory: soup
+originProvince: Batangas
+ingredients: [{"quantity":"1","unit":"cup","name":"Vegetables"}]
+procedure: [{"stepNumber":1,"content":"Cook the vegetables in water."}]
 ```
 
-**Response:**
-```json
-{
-  "message": "Registration successful. Please verify your email.",
-  "data": {
-    "user": {
-      "_id": "user_id",
-      "email": "user@example.com",
-      "firstName": "John",
-      "lastName": "Doe",
-      "role": "user"
-    }
-  }
-}
+Do not send `ingredients` or `procedure` as JSON arrays in a JSON request body.
+The model calls `JSON.parse()` on the supplied values.
+Although the procedure validation field is optional, the model changes an omitted value to an empty array.
+Supply complete procedure data to avoid different schema behavior.
+
+Recipe updates reset moderation to `pending`.
+The update method changes omitted ingredient, procedure, and retained picture fields to empty arrays.
+It can delete existing pictures when retained URLs are absent.
+Its video removal condition also needs review. Use disposable media for update tests.
+
+### Recipe list queries
+
+Approved, pending, and featured lists use `extractQueryParams()`.
+
+| Parameter | Effect |
+| --- | --- |
+| `page` | Page number. Default 1; minimum 1. |
+| `limit` | Page size. Default 10; range 1 to 100. |
+| `sortOrder` | `newest` sorts by `updatedAt` descending. Other or omitted values sort ascending. |
+| `search` | Search the title and description. |
+| `category` | Match `foodCategory` without case sensitivity. |
+| `origin` | Match `originProvince` without case sensitivity. |
+| `userId` | Approved list only: restrict the author. |
+| `forFeaturedRecipes` | Approved list only: place featured recipes first when the value is truthy. |
+| `forRankingRecipes` | Approved list only: sort by engagement when the value is truthy. |
+
+The flags use JavaScript truthiness. A query value of `false` is a nonempty string and still enables the flag.
+Omit a flag to disable it.
+
+Example:
+
+```http
+GET /api/recipes/approved?page=1&limit=10&sortOrder=newest&category=soup
 ```
 
-#### Verify Email
-**GET** `/auth/verify-email?token=<verification_token>`
-
-**Response:**
-```json
-{
-  "message": "Email verified successfully"
-}
-```
-
-#### Login
-**POST** `/auth/login`
-
-**Request Body:**
-```json
-{
-  "email": "user@example.com",
-  "password": "securePassword123"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Login successful",
-  "data": {
-    "user": {
-      "_id": "user_id",
-      "email": "user@example.com",
-      "firstName": "John",
-      "lastName": "Doe",
-      "role": "user"
-    }
-  }
-}
-```
-
-#### Get Authenticated User Details
-**GET** `/auth/user-details`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "User details retrieved successfully",
-  "data": {
-    "user": {
-      "_id": "user_id",
-      "email": "user@example.com",
-      "firstName": "John",
-      "lastName": "Doe",
-      "role": "user",
-      "profilePictureUrl": "https://supabase.url/profile.jpg"
-    },
-    "canPostRecipe": true
-  }
-}
-```
-
-#### Logout
-**POST** `/auth/logout`
-
-**Response:**
-```json
-{
-  "message": "Logged out successfully"
-}
-```
-
-#### Forgot Password
-**POST** `/auth/forgot-password`
-
-**Request Body:**
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Password reset email sent"
-}
-```
-
-#### Reset Password
-**POST** `/auth/reset-password`
-
-**Request Body:**
-```json
-{
-  "token": "reset_token",
-  "newPassword": "newSecurePassword123"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Password reset successful"
-}
-```
-
-### Users
-
-#### Get All Users (Admin Only)
-**GET** `/users`
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10, max: 100)
-
-**Response:**
-```json
-{
-  "message": "Users retrieved successfully",
-  "data": {
-    "users": [
-      {
-        "_id": "user_id",
-        "email": "user@example.com",
-        "firstName": "John",
-        "lastName": "Doe",
-        "role": "user",
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 5,
-      "hasNextPage": true
-    }
-  }
-}
-```
-
-#### Get Specific User Data
-**GET** `/users/:userId`
-
-**Response:**
-```json
-{
-  "message": "User data retrieved successfully",
-  "data": {
-    "_id": "user_id",
-    "email": "user@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "profilePictureUrl": "https://supabase.url/profile.jpg",
-    "bio": "Food enthusiast from Manila"
-  }
-}
-```
-
-#### Update User Profile
-**PUT** `/users/:userId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-- Content-Type: `multipart/form-data`
-
-**Form Data:**
-- `firstName` (optional): Updated first name
-- `lastName` (optional): Updated last name
-- `middleName` (optional): Updated middle name
-- `bio` (optional): Updated bio
-- `profilePicture` (optional): New profile picture file
-
-**Response:**
-```json
-{
-  "message": "Profile updated successfully",
-  "data": {
-    "_id": "user_id",
-    "email": "user@example.com",
-    "firstName": "John",
-    "lastName": "Updated",
-    "profilePictureUrl": "https://supabase.url/new-profile.jpg"
-  }
-}
-```
-
-#### Soft Delete User Account
-**DELETE** `/users/:userId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "Account deleted successfully"
-}
-```
-
-#### Get User Recipes
-**GET** `/users/:userId/recipes`
-
-**Query Parameters:**
-- `search` (optional): Search term for recipe title/description
-- `category` (optional): Filter by food category
-- `origin` (optional): Filter by origin province
-- `sortOrder` (optional): `newest` or `oldest` (default: `newest`)
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "User recipes retrieved successfully",
-  "data": {
-    "userRecipes": [
-      {
-        "_id": "recipe_id",
-        "title": "Adobo",
-        "foodCategory": "dishes",
-        "originProvince": "Manila",
-        "mainPictureUrl": "https://supabase.url/adobo.jpg",
-        "status": "approved",
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalRecipes": 25
-  }
-}
-```
-
-#### Change Password
-**POST** `/users/:userId/change-password`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Request Body:**
-```json
-{
-  "currentPassword": "oldPassword123",
-  "newPassword": "newPassword456"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Password changed successfully"
-}
-```
-
-#### Get Top Sharers
-**GET** `/users/top-sharers`
-
-**Response:**
-```json
-{
-  "message": "Top sharers retrieved successfully",
-  "data": [
-    {
-      "_id": "user_id",
-      "firstName": "John",
-      "lastName": "Doe",
-      "profilePictureUrl": "https://supabase.url/profile.jpg",
-      "totalRecipes": 15
-    }
-  ]
-}
-```
-
-### Recipes
-
-#### Create Recipe
-**POST** `/recipes`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-- Content-Type: `multipart/form-data`
-
-**Form Data:**
-- `title`: Recipe title
-- `foodCategory`: One of: `dishes`, `soup`, `drinks`, `desserts`, `pastries`
-- `originProvince`: Origin province
-- `description`: Recipe description
-- `ingredients`: JSON string of ingredients array
-- `procedure`: JSON string of procedure steps array
-- `mainPicture`: Main recipe picture file
-- `video` (optional): Recipe video file
-- `additionalPictures` (optional): Array of additional picture files
-
-**Ingredients JSON Format:**
-```json
-[
-  {
-    "quantity": 2,
-    "unit": "cups",
-    "name": "rice",
-    "notes": "jasmine rice preferred"
-  }
-]
-```
-
-**Procedure JSON Format:**
-```json
-[
-  {
-    "stepNumber": 1,
-    "content": "Wash the rice thoroughly"
-  }
-]
-```
-
-**Response:**
-```json
-{
-  "message": "Recipe created successfully",
-  "data": {
-    "_id": "recipe_id",
-    "title": "Adobo",
-    "foodCategory": "dishes",
-    "originProvince": "Manila",
-    "status": "pending",
-    "createdAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-#### Get Approved Recipes
-**GET** `/recipes`
-
-**Query Parameters:**
-- `search` (optional): Search term
-- `category` (optional): Filter by food category
-- `origin` (optional): Filter by origin province
-- `sortOrder` (optional): `newest` or `oldest` (default: `newest`)
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10, max: 100)
-- `userId` (optional): Filter by specific user
-
-**Response:**
-```json
-{
-  "message": "Recipes retrieved successfully",
-  "data": {
-    "recipes": [
-      {
-        "_id": "recipe_id",
-        "title": "Adobo",
-        "byUser": {
-          "_id": "user_id",
-          "firstName": "John",
-          "lastName": "Doe",
-          "profilePictureUrl": "https://supabase.url/profile.jpg"
-        },
-        "mainPictureUrl": "https://supabase.url/adobo.jpg",
-        "foodCategory": "dishes",
-        "isFeatured": true,
-        "createdAt": "2024-01-01T00:00:00.000Z",
-        "totalComments": 5,
-        "totalReactions": 20,
-        "heartCount": 15,
-        "droolCount": 3,
-        "neutralCount": 2,
-        "totalViews": 150,
-        "totalEngagement": 175
-      }
-    ],
-    "totalApprovedRecipes": 100,
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 10,
-      "hasNextPage": true
-    }
-  }
-}
-```
-
-#### Get Pending Recipes (Admin Only)
-**GET** `/recipes/pending`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "Pending recipes retrieved successfully",
-  "data": {
-    "pendingRecipesData": [
-      {
-        "_id": "recipe_id",
-        "title": "New Recipe",
-        "byUser": {
-          "_id": "user_id",
-          "firstName": "John",
-          "lastName": "Doe"
-        },
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalPendingRecipes": 5,
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 1,
-      "hasNextPage": false
-    }
-  }
-}
-```
-
-#### Get Featured Recipes
-**GET** `/recipes/featured`
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "Featured recipes retrieved successfully",
-  "data": {
-    "featuredRecipesData": [
-      {
-        "_id": "recipe_id",
-        "title": "Featured Adobo",
-        "byUser": {
-          "_id": "user_id",
-          "firstName": "John",
-          "lastName": "Doe"
-        },
-        "mainPictureUrl": "https://supabase.url/adobo.jpg",
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalFeaturedRecipes": 10,
-    "page": 1,
-    "limit": 10
-  }
-}
-```
-
-#### Get Top Engaged Recipes
-**GET** `/recipes/top-engaged`
-
-**Response:**
-```json
-{
-  "message": "Top engaged recipes retrieved successfully",
-  "data": [
-    {
-      "_id": "recipe_id",
-      "title": "Popular Adobo",
-      "byUser": {
-        "firstName": "John",
-        "lastName": "Doe"
-      },
-      "mainPictureUrl": "https://supabase.url/adobo.jpg",
-      "totalReactions": 50,
-      "totalComments": 25,
-      "totalViews": 300,
-      "totalEngagement": 375,
-      "createdAt": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-```
-
-#### Get Specific Recipe
-**GET** `/recipes/:recipeId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (optional, for user reaction data)
-
-**Response:**
-```json
-{
-  "message": "Recipe retrieved successfully",
-  "data": {
-    "_id": "recipe_id",
-    "title": "Adobo",
-    "foodCategory": "dishes",
-    "originProvince": "Manila",
-    "mainPictureUrl": "https://supabase.url/adobo.jpg",
-    "additionalPicturesUrls": ["url1", "url2"],
-    "videoUrl": "https://supabase.url/video.mp4",
-    "description": "Classic Filipino adobo recipe",
-    "ingredients": [
-      {
-        "quantity": 2,
-        "unit": "cups",
-        "name": "rice",
-        "notes": "jasmine rice"
-      }
-    ],
-    "procedure": [
-      {
-        "stepNumber": 1,
-        "content": "Wash the rice"
-      }
-    ],
-    "byUser": {
-      "_id": "user_id",
-      "firstName": "John",
-      "lastName": "Doe",
-      "profilePictureUrl": "https://supabase.url/profile.jpg"
-    },
-    "status": "approved",
-    "isFeatured": true,
-    "createdAt": "2024-01-01T00:00:00.000Z",
-    "totalComments": 5,
-    "totalReactions": 20,
-    "userReaction": "heart",
-    "totalViews": 150
-  }
-}
-```
-
-#### Update Recipe
-**PUT** `/recipes/:recipeId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-- Content-Type: `multipart/form-data`
-
-**Form Data:** (Same as create, all fields optional for update)
-
-**Response:**
-```json
-{
-  "message": "Recipe updated successfully",
-  "data": {
-    "_id": "recipe_id",
-    "title": "Updated Adobo",
-    "status": "pending", // Reset to pending after update
-    "updatedAt": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-#### Soft Delete Recipe
-**DELETE** `/recipes/:recipeId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "Recipe deleted successfully"
-}
-```
-
-#### Toggle Recipe Feature (Admin Only)
-**PATCH** `/recipes/:recipeId/feature`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Response:**
-```json
-{
-  "message": "Recipe featured status updated",
-  "data": {
-    "_id": "recipe_id",
-    "title": "Adobo",
-    "isFeatured": true
-  }
-}
-```
-
-### Reactions
-
-#### Add Reaction to Recipe
-**POST** `/reactions`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Request Body:**
-```json
-{
-  "recipeId": "recipe_id",
-  "reaction": "heart" // or "drool" or "neutral"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Reaction added successfully",
-  "data": {
-    "_id": "reaction_id",
-    "reaction": "heart",
-    "fromPost": "recipe_id",
-    "byUser": "user_id"
-  }
-}
-```
-
-#### Get Top Reacted Recipes
-**GET** `/reactions/top-reacted`
-
-**Response:**
-```json
-{
-  "message": "Top reacted recipes retrieved successfully",
-  "data": [
-    {
-      "_id": "recipe_id",
-      "title": "Popular Recipe",
-      "byUser": {
-        "firstName": "John",
-        "lastName": "Doe"
-      },
-      "mainPictureUrl": "https://supabase.url/recipe.jpg",
-      "totalReactions": 50,
-      "heartCount": 40,
-      "droolCount": 8,
-      "neutralCount": 2,
-      "createdAt": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-```
-
-#### Get Reactions for Specific Recipe
-**GET** `/reactions/:recipeId`
-
-**Response:**
-```json
-{
-  "message": "Reactions retrieved successfully",
-  "data": {
-    "reactions": [
-      {
-        "_id": "reaction_id",
-        "reaction": "heart",
-        "byUser": {
-          "_id": "user_id",
-          "firstName": "John",
-          "lastName": "Doe",
-          "profilePictureUrl": "https://supabase.url/profile.jpg"
-        },
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalReactions": 20,
-    "heartCount": 15,
-    "droolCount": 3,
-    "neutralCount": 2
-  }
-}
-```
-
-### Comments
-
-#### Add Comment to Recipe
-**POST** `/comments`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Request Body:**
-```json
-{
-  "recipeId": "recipe_id",
-  "content": "This looks delicious!"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Comment added successfully",
-  "data": {
-    "_id": "comment_id",
-    "content": "This looks delicious!",
-    "fromPost": "recipe_id",
-    "byUser": {
-      "_id": "user_id",
-      "firstName": "John",
-      "lastName": "Doe",
-      "profilePictureUrl": "https://supabase.url/profile.jpg"
-    },
-    "createdAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-#### Get Comments for Recipe
-**GET** `/comments/:recipeId`
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "Comments retrieved successfully",
-  "data": {
-    "comments": [
-      {
-        "_id": "comment_id",
-        "content": "This looks delicious!",
-        "byUser": {
-          "_id": "user_id",
-          "firstName": "John",
-          "lastName": "Doe",
-          "profilePictureUrl": "https://supabase.url/profile.jpg"
-        },
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalComments": 25,
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 3,
-      "hasNextPage": true
-    }
-  }
-}
-```
-
-#### Update Comment
-**PUT** `/comments/:commentId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Request Body:**
-```json
-{
-  "content": "Updated comment content"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Comment updated successfully",
-  "data": {
-    "_id": "comment_id",
-    "content": "Updated comment content",
-    "updatedAt": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-#### Soft Delete Comment
-**DELETE** `/comments/:commentId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "Comment deleted successfully"
-}
-```
-
-### Moderation (Admin Only)
-
-#### Get Pending Moderations
-**GET** `/moderations/pending`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "Pending moderations retrieved successfully",
-  "data": {
-    "moderations": [
-      {
-        "_id": "moderation_id",
-        "forPost": {
-          "_id": "recipe_id",
-          "title": "New Recipe",
-          "byUser": {
-            "_id": "user_id",
-            "firstName": "John",
-            "lastName": "Doe"
-          },
-          "createdAt": "2024-01-01T00:00:00.000Z"
-        },
-        "status": "pending",
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalPendingModerations": 5,
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 1,
-      "hasNextPage": false
-    }
-  }
-}
-```
-
-#### Moderate Recipe
-**POST** `/moderations/:recipeId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Request Body:**
-```json
-{
-  "status": "approved", // or "rejected"
-  "notes": "Great recipe! Approved." // Optional
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Recipe moderated successfully",
-  "data": {
-    "_id": "moderation_id",
-    "status": "approved",
-    "moderatedBy": "admin_user_id",
-    "notes": "Great recipe! Approved.",
-    "updatedAt": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-### Notifications
-
-#### Get User Notifications
-**GET** `/notifications`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "Notifications retrieved successfully",
-  "data": {
-    "notifications": [
-      {
-        "_id": "notification_id",
-        "type": "moderation",
-        "content": "Your recipe 'Adobo' has been approved!",
-        "fromPost": "recipe_id",
-        "isRead": false,
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalNotifications": 15,
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 2,
-      "hasNextPage": true
-    }
-  }
-}
-```
-
-#### Mark All Notifications as Read
-**PATCH** `/notifications/read-all`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "All notifications marked as read"
-}
-```
-
-#### Mark Specific Notification as Read
-**PATCH** `/notifications/:notificationId/read`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "Notification marked as read",
-  "data": {
-    "_id": "notification_id",
-    "isRead": true,
-    "updatedAt": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-#### Soft Delete Notification
-**DELETE** `/notifications/:notificationId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>`
-
-**Response:**
-```json
-{
-  "message": "Notification deleted successfully"
-}
-```
-
-### Announcements
-
-#### Get All Announcements (Admin Only)
-**GET** `/announcements`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Query Parameters:**
-- `page` (optional): Page number (default: 1)
-- `limit` (optional): Items per page (default: 10)
-
-**Response:**
-```json
-{
-  "message": "Announcements retrieved successfully",
-  "data": {
-    "announcements": [
-      {
-        "_id": "announcement_id",
-        "title": "System Maintenance",
-        "content": "Scheduled maintenance on Sunday",
-        "isActive": true,
-        "createdBy": {
-          "_id": "admin_id",
-          "firstName": "Admin",
-          "lastName": "User"
-        },
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ],
-    "totalAnnouncements": 5,
-    "pagination": {
-      "page": 1,
-      "limit": 10,
-      "totalPages": 1,
-      "hasNextPage": false
-    }
-  }
-}
-```
-
-#### Get Active Announcements
-**GET** `/announcements/active`
-
-**Response:**
-```json
-{
-  "message": "Active announcements retrieved successfully",
-  "data": [
-    {
-      "_id": "announcement_id",
-      "title": "New Feature",
-      "content": "Check out our new recipe sharing feature!",
-      "createdAt": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-```
-
-#### Create Announcement (Admin Only)
-**POST** `/announcements`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Request Body:**
-```json
-{
-  "title": "System Maintenance",
-  "content": "Scheduled maintenance on Sunday from 2-4 AM",
-  "isActive": true
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Announcement created successfully",
-  "data": {
-    "_id": "announcement_id",
-    "title": "System Maintenance",
-    "content": "Scheduled maintenance on Sunday from 2-4 AM",
-    "isActive": true,
-    "createdBy": "admin_user_id",
-    "createdAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-#### Update Announcement (Admin Only)
-**PUT** `/announcements/:announcementId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Request Body:**
-```json
-{
-  "title": "Updated Maintenance Schedule",
-  "content": "Maintenance rescheduled to Monday",
-  "isActive": false
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Announcement updated successfully",
-  "data": {
-    "_id": "announcement_id",
-    "title": "Updated Maintenance Schedule",
-    "content": "Maintenance rescheduled to Monday",
-    "isActive": false,
-    "updatedAt": "2024-01-02T00:00:00.000Z"
-  }
-}
-```
-
-#### Soft Delete Announcement (Admin Only)
-**DELETE** `/announcements/:announcementId`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (Admin role required)
-
-**Response:**
-```json
-{
-  "message": "Announcement deleted successfully"
-}
-```
-
-### Platform Visits (Analytics)
-
-#### Track Platform Visit
-**POST** `/platform-visits`
-
-**Response:**
-```json
-{
-  "message": "Platform visit tracked successfully",
-  "data": {
-    "_id": "visit_id",
-    "createdAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-#### Get Platform Visit Statistics
-**GET** `/platform-visits`
-
-**Query Parameters:**
-- `startDate` (optional): Start date in ISO format
-- `endDate` (optional): End date in ISO format
-
-**Response:**
-```json
-{
-  "message": "Platform visits retrieved successfully",
-  "data": {
-    "totalVisits": 1500,
-    "dailyVisits": [
-      {
-        "date": "2024-01-01",
-        "count": 50
-      }
-    ],
-    "monthlyVisits": [
-      {
-        "month": "January 2024",
-        "count": 1500
-      }
-    ]
-  }
-}
-```
-
-### Post Views
-
-#### Track Post View
-**POST** `/post-views`
-
-**Headers:**
-- Cookie: `kulinarya_auth_token=<token>` (optional)
-
-**Request Body:**
-```json
-{
-  "recipeId": "recipe_id"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Post view tracked successfully",
-  "data": {
-    "_id": "view_id",
-    "fromPost": "recipe_id",
-    "byUser": "user_id", // or null if anonymous
-    "createdAt": "2024-01-01T00:00:00.000Z"
-  }
-}
-```
-
-#### Get Post Views for Recipe
-**GET** `/post-views/:recipeId`
-
-**Response:**
-```json
-{
-  "message": "Post views retrieved successfully",
-  "data": {
-    "totalViews": 150,
-    "views": [
-      {
-        "_id": "view_id",
-        "byUser": {
-          "_id": "user_id",
-          "firstName": "John",
-          "lastName": "Doe"
-        },
-        "createdAt": "2024-01-01T00:00:00.000Z"
-      }
-    ]
-  }
-}
-```
-
-#### Get Top Viewed Posts
-**GET** `/post-views/top`
-
-**Response:**
-```json
-{
-  "message": "Top viewed posts retrieved successfully",
-  "data": [
-    {
-      "_id": "recipe_id",
-      "title": "Popular Recipe",
-      "byUser": {
-        "firstName": "John",
-        "lastName": "Doe"
-      },
-      "mainPictureUrl": "https://supabase.url/recipe.jpg",
-      "totalViews": 300,
-      "createdAt": "2024-01-01T00:00:00.000Z"
-    }
-  ]
-}
-```
-
-## 📝 Error Codes
-
-| Code | Meaning | Description |
-|------|---------|-------------|
-| 400 | Bad Request | Invalid request parameters or body |
-| 401 | Unauthorized | Authentication required or invalid |
-| 403 | Forbidden | Insufficient permissions |
-| 404 | Not Found | Resource not found |
-| 409 | Conflict | Resource already exists |
-| 422 | Unprocessable Entity | Validation error |
-| 429 | Too Many Requests | Rate limit exceeded |
-| 500 | Internal Server Error | Server error |
-
-## 🔄 Rate Limiting
-
-- Email verification resend: 3 attempts per hour
-- Password reset requests: 5 attempts per hour
-- API requests: Configurable per endpoint
-
-## 📁 File Upload Specifications
-
-### Supported File Types
-- **Images**: JPEG, PNG, WebP
-- **Videos**: MP4, MOV
-
-### Size Limits
-- Profile pictures: 2MB max
-- Recipe images: 2MB max each
-- Recipe videos: 50MB max
-
-### Upload Endpoints
-- `PUT /users/:userId` - Profile picture
-- `POST /recipes` - Recipe media
-- `PUT /recipes/:recipeId` - Recipe media updates
-
-## 🔐 Role-Based Access Control
-
-### User Roles
-| Role | Permissions |
-|------|-------------|
-| **User** | Basic recipe viewing, commenting, reacting |
-| **Creator** | All user permissions + recipe creation |
-| **Admin** | All permissions + moderation, user management |
-
-### Protected Endpoints
-- **Admin only**: User management, moderation, announcements
-- **Creator only**: Recipe creation, updating own recipes
-- **Authenticated users**: Comments, reactions, profile updates
-- **Public**: Recipe viewing, platform visits
-
-## 📈 Pagination
-
-All list endpoints support pagination with the following query parameters:
-- `page`: Page number (default: 1)
-- `limit`: Items per page (default: 10, max: 100)
-
-Pagination response includes:
-```json
-{
-  "pagination": {
-    "page": 1,
-    "limit": 10,
-    "totalPages": 5,
-    "hasNextPage": true
-  }
-}
-```
-
-## 🔍 Search & Filtering
-
-### Recipe Search
-- `search`: Searches in title and description
-- `category`: Filters by food category
-- `origin`: Filters by origin province
-- `sortOrder`: `newest` or `oldest`
-
-### User Recipe Search
-- All recipe search parameters plus user-specific filtering
-
-## 🎯 Testing
-
-### API Testing Collection
-The project includes a Bruno API collection in `/kulinarya-api/` with:
-- All endpoints pre-configured
-- Environment variables setup
-- Request examples
-- Response validation
-
-### Test Environment Setup
-1. Set `NODE_ENV=test`
-2. Use test database
-3. Mock external services
-4. Run integration tests
-
----
-
-*This API documentation is automatically generated and should be kept updated with code changes. For the latest information, refer to the source code and Bruno collection.*
+## Reactions
+
+Source: [reactionRoutes.js](src/routes/reactionRoutes.js) and [reactionModel.js](src/models/reactionModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `GET` | `/reactions/overall-reactions` | Public | Returns the overall reaction counts. |
+| `GET` | `/reactions/top-reacted` | Public | Returns `data.topReactedPosts`. |
+| `GET` | `/reactions/:recipeId` | Public | Returns `reactions`, `totalReactions`, and `cursor`. |
+| `POST` | `/reactions/:recipeId/toggle` | User | JSON: `reaction`. |
+
+Use `heart`, `drool`, or `neutral` as the reaction value.
+A repeated reaction removes the current reaction through a soft delete.
+A different reaction changes the current value. A new reaction returns HTTP 201; other changes return HTTP 200.
+
+The controller and model use different result field names. Do not rely on the mutation response for reaction or notification data.
+The top reaction model uses the current month. The controller accepts `timeframe`, but the model ignores it.
+
+## Comments
+
+Source: [commentRoutes.js](src/routes/commentRoutes.js) and [commentModel.js](src/models/commentModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `GET` | `/comments/overall-comments` | Public | Returns `totalComments`. |
+| `GET` | `/comments/:recipeId` | Public | Returns `comments` and `cursor`. |
+| `POST` | `/comments/:recipeId` | User | JSON: `content`. Returns `comment` and notification data. |
+| `PATCH` | `/comments/:commentId` | User, owner | JSON: `content`. Returns `comment`. |
+| `DELETE` | `/comments/:commentId/soft-delete` | User, owner | No body. |
+
+Comment content requires 2 to 1,000 characters.
+The update model does not create a notification, although the controller response message says that it does.
+
+## Moderation
+
+Source: [moderationRoutes.js](src/routes/moderationRoutes.js) and [moderationModel.js](src/models/moderationModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `PATCH` | `/moderations/:moderationId` | Moderator | JSON: `status`, optional `notes`. Returns `moderation` and possible notification data. |
+| `GET` | `/moderations/pending-count` | User; model requires moderator role | Returns `pendingModerationCount`. |
+| `GET` | `/moderations/:recipeId` | User | Returns `moderation`. |
+
+The update path uses a moderation ID. The retrieval path uses a recipe ID.
+Use `pending`, `approved`, or `rejected` as the status.
+If supplied, notes require 2 to 1,000 characters. Moderators cannot moderate their own recipes.
+
+The pending-count route is an unanchored regular expression in the source.
+Use the documented `/pending-count` path. Do not depend on its additional matches.
+There is no `GET /moderations/pending` route. Use `GET /recipes/pending` to retrieve pending recipes.
+
+## Notifications
+
+Source: [notificationRoutes.js](src/routes/notificationRoutes.js) and [notificationModel.js](src/models/notificationModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `GET` | `/notifications` | User | Returns `notifications` and `cursor` for the current user. |
+| `GET` | `/notifications/unread-count` | User | Returns `unreadCount`. |
+| `PATCH` | `/notifications/:notificationId/read` | User, recipient | No body. |
+| `PATCH` | `/notifications/read-all` | User | No body. Marks the current user notifications as read. |
+| `DELETE` | `/notifications/:notificationId/soft-delete` | User, recipient | No body. |
+
+Clients retrieve notifications through HTTP. The API does not send them over a live connection.
+
+## Announcements
+
+Source: [announcementRoutes.js](src/routes/announcementRoutes.js) and [announcementModel.js](src/models/announcementModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `POST` | `/announcements/create` | Moderator | JSON: `title`, `content`. Returns `announcement`. |
+| `PATCH` | `/announcements/:announcementId` | Moderator | JSON: `title`, `content`, or Boolean `isActive`. |
+| `DELETE` | `/announcements/:announcementId/soft-delete` | Moderator | No body. |
+| `GET` | `/announcements` | Moderator | Returns `announcements`, including deleted records. |
+| `GET` | `/announcements/activeAnnouncements` | Public | Returns active, nondeleted `announcements`. |
+| `GET` | `/announcements/:announcementId` | User | Returns one nondeleted `announcement`. |
+
+Creation requires a nonempty title and at least two content characters.
+The server supplies `createdBy` from the authentication token.
+Updates do not use the creation validation schema.
+
+## Platform visits
+
+Source: [platformVisitRoutes.js](src/routes/platformVisitRoutes.js) and [platformVisitModel.js](src/models/platformVisitModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `POST` | `/platform-visits` | Optional cookie | JSON object. Returns `platformVisit`. |
+| `GET` | `/platform-visits` | Public | Returns `totalVisits`, `userVisits`, and `guestVisits`. |
+
+The model derives the visitor type from the cookie when `visitType` is absent.
+It uses the token user ID for authenticated requests and `req.ip` for guest requests.
+It also accepts `visitType`, `byUser`, and `byGuest` fields. Do not treat these records as verified unique visitors.
+A repeat visit within one hour returns HTTP 429.
+
+## Recipe views
+
+Source: [postViewRoutes.js](src/routes/postViewRoutes.js) and [postViewModel.js](src/models/postViewModel.js).
+
+| Method | Path | Access | Request or result |
+| --- | --- | --- | --- |
+| `POST` | `/post-views` | Optional cookie | JSON: `fromPost`, with optional visitor fields. Returns `postView`. |
+| `GET` | `/post-views/top` | Public | Returns `totalPostViews` and `topViewedPosts`. |
+| `GET` | `/post-views/:recipeId` | Public | Returns `recipeId` and `views`. |
+
+Optional visitor fields are `viewType`, `byUser`, and `byGuest`.
+The model derives defaults from the cookie and IP address.
+A repeat view of the same recipe within one day returns HTTP 429.
+The top view calculation uses the current month.
+
+## Cursor pagination
+
+Comments, reactions, and notifications accept `limit` and `cursor` query parameters.
+Their default limit is 10.
+
+1. Request the first set without a cursor.
+2. Read the returned `cursor`.
+3. Send that value as the next request cursor.
+4. Stop when the response contains no items or a null cursor.
+
+Notifications use `updatedAt`. Comments and reactions use `createdAt`.
+The cursor is a timestamp, not an offset or document ID.
+Items with the same timestamp can cross a page boundary. The queries do not use an ID tie-breaker.
+
+## Media uploads
+
+Source: [multerMiddleware.js](src/middleware/multerMiddleware.js), [handleSupabaseUpload.js](src/utils/handleSupabaseUpload.js), and the user and recipe models.
+
+| Media | Field | Model configuration | Count per request |
+| --- | --- | --- | --- |
+| Profile picture | `profilePictureUrl` | JPEG or PNG, 2 MiB. | 1 |
+| Main recipe picture | `mainPicture` | JPEG, JPG, PNG, or WebP, 2 MiB. | 1 |
+| Additional recipe picture | `additionalPictures` | JPEG, JPG, PNG, or WebP, 2 MiB each. | 5 |
+| Recipe video | `video` | MP4, 50 MiB. | 1 |
+
+One MiB is 1,048,576 bytes.
+Multer first applies a 50 MiB limit to each file and a shared MIME filter.
+The model then supplies the media-specific limits to the storage helper.
+MOV appears in model options, but the Multer filter rejects it.
+An oversized picture can cause a server error because the helper error message refers to undefined `maxSize`.
+
+Files use the `kulinarya-bucket` bucket and public URLs.
+The server does not read `SUPABASE_BUCKET_NAME` or use an anonymous Supabase key.
+
+## Implementation gaps
+
+These gaps are visible in the source. This documentation update does not change runtime code.
+
+| Area | Source behavior |
+| --- | --- |
+| Reaction result | The model returns `reactionData` and `notificationData`; the controller reads `reaction` and `notification`. |
+| Edit recipe retrieval | The model compares a populated author document as text and rejects when its ownership condition is true. |
+| Profile update | Authentication is required, but caller ownership and role checks are absent. |
+| User deletion | The model rejects self-deletion and administrator targets. It does not require an administrator caller. |
+| Password reset | The email function creates another token instead of receiving the token saved by the model. Reset acceptance needs an integration test. |
+| Reset password validation | The reset method does not use the declared `resetPasswordSchema`. |
+| Media update | Old files can be deleted before database validation or persistence succeeds. |
+| Upload size error | The helper uses undefined `maxSize` in its oversized-file error. |
+| Validation results | Several methods call `.parse()` but continue with the original input. Do not assume every schema transformation takes effect. |
+
+A pending recipe count is used to calculate the `canPostRecipe` account flag.
+The recipe creation method does not enforce that pending-count limit.
+Do not describe this flag as a server-enforced submission limit.
+
+## Bruno collection
+
+[kulinarya-api](kulinarya-api) contains saved requests. It is not an automated test suite or an exact API specification.
+Some requests contain old IDs, tokens, credentials, methods, or bodies. Use a test account and replace those values before use.
+
+Known route differences include these examples:
+
+| Saved request | Current route or format |
+| --- | --- |
+| `FeatureRecipe` | `PATCH /api/recipes/:recipeId/toggle-feature`. |
+| `GetRecipeByID` | `GET /api/recipes/approved/:recipeId` for a public approved recipe. |
+| `Get Top Reacted Post` | `GET /api/reactions/top-reacted`. |
+| `Read All Notifications` | `PATCH /api/notifications/read-all`. |
+| `PostNewRecipe` | Use multipart fields with JSON strings for arrays and cookie authentication. |
+
+Do a check of each saved request against this guide and the route source.
+Do not copy old bearer-token instructions into a browser client.

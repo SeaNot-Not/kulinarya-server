@@ -1,141 +1,57 @@
-# Kulinarya Backend Documentation - Table of Contents
+# Documentation index
 
-## 📚 Complete Documentation Suite
+Documentation review date: 2026-11-09.
 
-### 1. **README.md** - Quick Start Guide
-   - Project Overview
-   - Features
-   - Tech Stack
-   - Installation
-   - API Summary
-   - Configuration
+## Select a guide
 
-### 2. **ARCHITECTURE.md** - Technical Architecture
-   - System Architecture Diagrams
-   - Database Schema Design
-   - Data Flow Diagrams
-   - Security Architecture
-   - Performance Considerations
-   - Deployment Architecture
-   - Design Patterns
+| Task | Guide | Contents |
+| --- | --- | --- |
+| Start local development | [README](README.md) | Overview, commands, source map, and main functions. |
+| Send API requests | [API reference](API_DOCUMENTATION.md) | All route methods, paths, fields, access checks, and pagination. |
+| Understand the source | [Architecture](ARCHITECTURE.md) | Startup, models, request flow, storage, and email. |
+| Configure a host | [Deployment](DEPLOYMENT.md) | Environment variables, initial administrator, services, and runtime checks. |
+| Change or diagnose the API | [Developer guide](DEVELOPER_GUIDE.md) | Source responsibilities, development steps, manual checks, and error handling. |
+| Review documentation changes | [Review summary](DOCUMENTATION_SUMMARY.md) | Corrected claims, verification scope, and current limits. |
 
-### 3. **API_DOCUMENTATION.md** - API Reference
-   - Authentication Endpoints
-   - User Management
-   - Recipe Operations
-   - Engagement Features
-   - Admin Functions
-   - Analytics Endpoints
-   - Error Codes
-   - Rate Limiting
+## Important source files
 
-### 4. **DEPLOYMENT.md** - Deployment Guide
-   - Local Development Setup
-   - Docker Deployment
-   - AWS EC2 Deployment
-   - Database Setup (MongoDB Atlas)
-   - File Storage (Supabase)
-   - Email Service (Resend)
-   - Security Configuration
-   - Monitoring & Maintenance
-   - Troubleshooting
+| File or directory | Function |
+| --- | --- |
+| [package.json](package.json) | Dependency ranges and available npm scripts. |
+| [package-lock.json](package-lock.json) | Locked dependency versions. |
+| [server.js](server.js) | Database connection and listener startup. |
+| [src/app.js](src/app.js) | Middleware, root route, and API mounts. |
+| [environmentConditions.js](src/utils/environmentConditions.js) | Development or production variable selection. |
+| [userModel.js](src/models/userModel.js) | Accounts, cookies, token operations, and initial administrator. |
+| [src/routes](src/routes) | Current API methods, paths, and route access checks. |
+| [src/controllers](src/controllers) | Endpoint response fields. |
+| [src/models](src/models) | Database fields and application rules. |
+| [src/validations](src/validations) | Input schemas. |
+| [kulinarya-api](kulinarya-api) | Saved Bruno requests with known stale examples. |
 
-### 5. **DEVELOPER_GUIDE.md** - Developer Handbook
-   - Project Structure
-   - Code Style Guidelines
-   - Adding New Features
-   - Testing Strategies
-   - Debugging Techniques
-   - Performance Optimization
-   - Database Migrations
-   - Contribution Guidelines
-   - Security Best Practices
+There is no `.env.example`. Use the [environment variable table](DEPLOYMENT.md#environment-variables) to create the local `.env` file.
+There is no generated OpenAPI reference or API documentation generator in the repository.
 
-### 6. **DOCUMENTATION_SUMMARY.md** - Overview
-   - Documentation Overview
-   - Key Features
-   - Database Schema Summary
-   - Security Implementation
-   - Deployment Options
-   - Development Workflow
-   - Support Resources
+## Commands
 
-## 🎯 Quick Reference
+Run these commands from this repository:
 
-### Essential Files
-- **`.env.example`** - Environment variables template
-- **`package.json`** - Dependencies and scripts
-- **`server.js`** - Application entry point
-- **`src/app.js`** - Express app configuration
-
-### Key Directories
-- **`src/models/`** - Database schemas and business logic
-- **`src/controllers/`** - Route handlers
-- **`src/routes/`** - API route definitions
-- **`src/middleware/`** - Custom middleware
-- **`src/utils/`** - Utility functions
-- **`src/validations/`** - Zod validation schemas
-- **`kulinarya-api/`** - Bruno API collection for testing
-
-### Configuration Files
-- **`.env`** - Environment variables (create from `.env.example`)
-- **`.gitignore`** - Git ignore rules
-- **`package-lock.json`** - Dependency lock file
-
-## 🔧 Development Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Start development server
+```sh
+npm ci
 npm run dev
-
-# Start production server
-npm start
-
-# Test API endpoints
-# Use Bruno collection in kulinarya-api/
 ```
 
-## 📞 Support Resources
+Use `npm start` to start the Node.js process without Nodemon.
+`npm test` is a failing placeholder. There is no lint or build script.
 
-### Documentation Links
-- [README.md](./README.md) - Start here
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Technical details
-- [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) - API reference
-- [DEPLOYMENT.md](./DEPLOYMENT.md) - Deployment guide
-- [DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md) - Development guide
+## Keep the guides current
 
-### External Resources
-- [MongoDB Documentation](https://docs.mongodb.com/)
-- [Express.js Documentation](https://expressjs.com/)
-- [Mongoose Documentation](https://mongoosejs.com/)
-- [Supabase Documentation](https://supabase.com/docs)
-- [Resend Documentation](https://resend.com/docs)
+1. Read the relevant route, controller, model, and configuration source.
+2. Revise the guide when a command, variable, field, path, or access rule changes.
+3. Preserve exact identifiers and response strings.
+4. Use short sentences and consistent technical names.
+5. Do a check of local links and examples.
+6. Record limits that require a live service or integration test.
 
-## 🔄 Documentation Maintenance
-
-### Update Frequency
-- **Weekly**: Check for outdated information
-- **Monthly**: Review and update all documents
-- **Quarterly**: Comprehensive documentation review
-- **After major changes**: Immediate updates required
-
-### Contributing to Documentation
-1. Fork the repository
-2. Create a documentation branch
-3. Make changes with clear commit messages
-4. Submit pull request
-5. Request review from team
-
-### Documentation Standards
-- Use Markdown formatting
-- Include code examples
-- Add diagrams for complex concepts
-- Keep language clear and concise
-- Update all related documents when making changes
-
----
-
-*This table of contents provides a roadmap to the complete documentation suite. Start with the README for basic setup, then explore specific documents based on your needs.*
+Use the ASD-STE100 writing principles described in the [Developer guide](DEVELOPER_GUIDE.md#documentation-changes).
+The guides describe checked source. They do not prove live deployment, security effectiveness, or performance.

@@ -1,489 +1,183 @@
-# Kulinarya Backend Architecture Documentation
+# API architecture
 
-## 🏗️ System Architecture Overview
+Documentation review date: 2026-11-09.
 
-### High-Level Architecture
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Client App    │────▶│   API Gateway   │────▶│   Express.js    │
-│   (Frontend)    │     │   (Reverse      │     │   Backend       │
-│                 │◀────│    Proxy)       │◀────│                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Supabase      │◀────│   File Upload   │◀────│   Multer        │
-│   Storage       │     │   Service       │     │   Middleware    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   MongoDB       │◀────│   Mongoose      │◀────│   Data Models   │
-│   Database      │     │   ODM           │     │   & Schemas     │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Email Service │◀────│   Nodemailer    │◀────│   Email Utils   │
-│   (Resend)      │     │   Integration   │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+## System parts
+
+The React client sends HTTP requests to the Express API. The API uses MongoDB, Supabase Storage, and Gmail SMTP.
+
+```mermaid
+flowchart LR
+    Client[React client] --> Routes[Express routes]
+    Routes --> Middleware[Route middleware]
+    Middleware --> Controllers[Controllers]
+    Controllers --> Models[Mongoose models]
+    Models --> MongoDB[(MongoDB)]
+    Models --> Storage[Supabase Storage]
+    Controllers --> Mail[Nodemailer]
+    Mail --> Gmail[Gmail SMTP]
 ```
 
-## 📁 Project Structure Deep Dive
+Most application rules are static methods on the Mongoose models. Controllers call these methods and form HTTP responses.
+There is no separate service directory or API gateway implementation in this repository.
 
-### Directory Structure
-```
-server/
-├── src/
-│   ├── app.js                    # Express app configuration
-│   ├── config/
-│   │   └── database.js          # MongoDB connection setup
-│   ├── controllers/              # Business logic handlers
-│   │   ├── authController.js     # Authentication operations
-│   │   ├── recipeController.js   # Recipe CRUD operations
-│   │   ├── userController.js     # User management
-│   │   ├── commentController.js  # Comment operations
-│   │   ├── reactionController.js # Reaction operations
-│   │   ├── moderationController.js # Moderation workflow
-│   │   ├── notificationController.js # Notification system
-│   │   ├── announcementController.js # Announcement management
-│   │   ├── platformVisitController.js # Analytics tracking
-│   │   └── postViewController.js # Post view tracking
-│   ├── middleware/               # Custom middleware
-│   │   ├── authenticateUser.js   # JWT authentication
-│   │   ├── checkRole.js          # Role-based authorization
-│   │   ├── errorHandler.js       # Global error handling
-│   │   ├── initialLogin.js       # Initial admin setup
-│   │   ├── multerMiddleware.js   # File upload handling
-│   │   └── resendLimiter.js      # Rate limiting for resends
-│   ├── models/                   # MongoDB schemas
-│   │   ├── userModel.js          # User schema with auth methods
-│   │   ├── recipeModel.js        # Recipe schema with business logic
-│   │   ├── moderationModel.js    # Moderation workflow schema
-│   │   ├── reactionModel.js      # Reaction schema
-│   │   ├── commentModel.js       # Comment schema
-│   │   ├── postViewModel.js      # Post view tracking schema
-│   │   ├── notificationModel.js  # Notification schema
-│   │   ├── announcementModel.js  # Announcement schema
-│   │   ├── platformVisitModel.js # Platform visit tracking
-│   │   ├── resendAttemptModel.js # Rate limiting for email resends
-│   │   └── resetTokenModel.js    # Password reset tokens
-│   ├── routes/                   # API route definitions
-│   │   ├── authRoutes.js         # Authentication routes
-│   │   ├── userRoutes.js         # User management routes
-│   │   ├── recipeRoutes.js       # Recipe CRUD routes
-│   │   ├── commentRoutes.js      # Comment routes
-│   │   ├── reactionRoutes.js     # Reaction routes
-│   │   ├── moderationRoutes.js   # Moderation routes
-│   │   ├── notificationRoutes.js # Notification routes
-│   │   ├── announcementRoutes.js # Announcement routes
-│   │   ├── platformVisitRoutes.js # Analytics routes
-│   │   └── postViewRoutes.js     # Post view routes
-│   ├── utils/                    # Utility functions
-│   │   ├── aggregationPipelines.js # MongoDB aggregation queries
-│   │   ├── customError.js        # Custom error class
-│   │   ├── deleteSupabaseFile.js # File deletion utility
-│   │   ├── emailTransporter.js   # Email sending setup
-│   │   ├── environmentConditions.js # Environment config
-│   │   ├── handleSupabaseUpload.js # File upload utility
-│   │   ├── notificationUtils.js  # Notification helpers
-│   │   ├── recipeUtils.js        # Recipe-specific utilities
-│   │   ├── resendAttemptUtils.js # Resend attempt tracking
-│   │   ├── supabase.js           # Supabase client setup
-│   │   ├── tokenUtils.js         # JWT token utilities
-│   │   └── validators.js         # Validation helpers
-│   ├── validations/              # Zod validation schemas
-│   │   ├── userValidations.js    # User data validation
-│   │   ├── recipeValidations.js  # Recipe data validation
-│   │   ├── commentValidation.js  # Comment validation
-│   │   ├── reactionValidation.js # Reaction validation
-│   │   ├── moderationValidations.js # Moderation validation
-│   │   ├── notificationValidation.js # Notification validation
-│   │   ├── announcementValidation.js # Announcement validation
-│   │   ├── platformVisitValidation.js # Platform visit validation
-│   │   └── postViewValidation.js # Post view validation
-│   └── mail/                     # Email templates
-│       ├── sendPasswordResetEmail.js # Password reset email
-│       └── sendVerificationEmail.js  # Verification email
-├── kulinarya-api/                # Bruno API collection
-├── server.js                     # Application entry point
-└── package.json                  # Dependencies and scripts
-```
+## Startup and middleware
 
-## 🗄️ Database Schema Design
+1. [server.js](server.js) loads the environment and calls `connectDB()`.
+2. [database.js](src/config/database.js) connects to MongoDB.
+3. The server starts the HTTP listener after the database connection succeeds.
 
-### User Model
-```javascript
-{
-  email: String,           // Unique, required
-  password: String,        // Hashed, required
-  isEmailVerified: Boolean, // Default: false
-  role: String,            // Enum: ['admin', 'creator', 'user']
-  firstName: String,       // Required
-  middleName: String,      // Optional
-  lastName: String,        // Required
-  profilePictureUrl: String, // Optional
-  bio: String,            // Optional
-  deletedAt: Date,         // Soft delete timestamp
-  createdAt: Date,         // Auto-generated
-  updatedAt: Date          // Auto-generated
-}
-```
+[app.js](src/app.js) installs the middleware in this order:
 
-### Recipe Model
-```javascript
-{
-  byUser: ObjectId,        // Reference to User
-  title: String,           // Required
-  foodCategory: String,    // Enum: ['dishes', 'soup', 'drinks', 'desserts', 'pastries']
-  originProvince: String,  // Required
-  mainPictureUrl: String,  // Optional
-  additionalPicturesUrls: [String], // Array of URLs
-  videoUrl: String,        // Optional
-  description: String,     // Optional
-  ingredients: [{          // Array of ingredient objects
-    quantity: Number,
-    unit: String,
-    name: String,          // Required
-    notes: String
-  }],
-  procedure: [{            // Array of step objects
-    stepNumber: Number,    // Required
-    content: String        // Required
-  }],
-  moderationInfo: ObjectId, // Reference to Moderation
-  status: String,          // Enum: ['pending', 'approved', 'rejected']
-  isFeatured: Boolean,     // Default: false
-  deletedAt: Date,         // Soft delete timestamp
-  createdAt: Date,
-  updatedAt: Date
-}
-```
+1. Parse JSON request bodies.
+2. Parse cookies.
+3. Apply the CORS settings.
+4. Write HTTP logs with Morgan.
+5. Handle the root route and API routes.
+6. Return the fallback 404 response.
+7. Handle errors with the error middleware.
 
-### Moderation Model
-```javascript
-{
-  forPost: ObjectId,       // Reference to Recipe
-  moderatedBy: ObjectId,   // Reference to User (admin)
-  status: String,          // Enum: ['pending', 'approved', 'rejected']
-  notes: String,           // Optional moderation notes
-  createdAt: Date,
-  updatedAt: Date
-}
-```
+CORS permits the configured client origin and credentialed requests.
+`NODE_ENV=prod` selects the production URL, database URI, cookie settings, and Morgan format.
+
+The root route calls `initialLogin`. It can create an administrator when none exists.
+It is not a read-only health check.
+
+## Data models
+
+Read [src/models](src/models) for complete field definitions and model methods.
+
+| Model | Main fields and function |
+| --- | --- |
+| `User` | Account email, hashed password, role, profile, verification flag, and `deletedAt`. |
+| `Recipe` | Author, title, category, province, media URLs, ingredients, procedure, and moderation reference. |
+| `Moderation` | Recipe reference, moderator reference, status, notes, and `deletedAt`. |
+| `Reaction` | Recipe reference, user reference, reaction value, and `deletedAt`. |
+| `Comment` | Recipe reference, author reference, content, and `deletedAt`. |
+| `Notification` | Recipient, actor, recipe reference, type, content, read flag, and `deletedAt`. |
+| `Announcement` | Title, content, author, active flag, and `deletedAt`. |
+| `PostView` | Recipe reference, visitor type, user or guest identifier, and timestamps. |
+| `PlatformVisit` | Visitor type, user or guest identifier, and timestamps. |
+| `ResendAttempt` | Email, request type, attempt count, and last attempt time. |
+| `ResetToken` | User reference, token, expiry time, and used flag. |
+
+The `User` roles are `admin`, `creator`, and `user`.
+The recipe categories are `dishes`, `soup`, `drinks`, `desserts`, and `pastries`.
+The reaction values are `heart`, `drool`, and `neutral`. The reaction schema also permits `null`.
+The moderation states are `pending`, `approved`, and `rejected`.
 
 ### Relationships
+
 ```mermaid
 erDiagram
-    USER ||--o{ RECIPE : creates
-    USER ||--o{ COMMENT : writes
-    USER ||--o{ REACTION : reacts
-    USER ||--o{ POSTVIEW : views
-    USER ||--o{ NOTIFICATION : receives
-    USER ||--o{ MODERATION : moderates
-    RECIPE ||--o{ COMMENT : has
-    RECIPE ||--o{ REACTION : receives
-    RECIPE ||--o{ POSTVIEW : tracked
-    RECIPE ||--o{ MODERATION : requires
-    RECIPE }|--|| MODERATION : moderated_by
-    ANNOUNCEMENT ||--o{ USER : targets
-    PLATFORMVISIT ||--o{ USER : tracks
+    User ||--o{ Recipe : authors
+    Recipe ||--o| Moderation : references
+    User ||--o{ Comment : writes
+    Recipe ||--o{ Comment : receives
+    User ||--o{ Reaction : adds
+    Recipe ||--o{ Reaction : receives
+    User ||--o{ Notification : receives
+    User ||--o{ Announcement : creates
 ```
 
-## 🔄 Data Flow Diagrams
+This diagram describes intended references. It does not assert database constraints for each relationship.
+`createRecipe()` creates the recipe before its moderation record. The method does not use a database transaction.
 
-### User Registration Flow
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant A as Auth Controller
-    participant U as User Model
-    participant E as Email Service
-    participant DB as Database
+### Recipe fields
 
-    C->>A: POST /api/auth/register
-    A->>U: Validate & Hash Password
-    U->>DB: Create User Record
-    DB-->>U: User Created
-    U->>E: Send Verification Email
-    E-->>C: Email Sent
-    A-->>C: 201 Created
-```
+The ingredient schema stores `quantity` as a number. The request validation schema requires a string quantity.
+Use string quantities in requests. Mongoose converts the values when it stores them.
 
-### Recipe Creation Flow
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant R as Recipe Controller
-    participant M as Multer Middleware
-    participant S as Supabase Storage
-    participant DB as Database
-    participant N as Notification System
-    participant MOD as Moderation System
+Each procedure step has `stepNumber` and `content`.
+The recipe also has a `status` field, but recipe list queries use the related moderation status.
+Do not use the recipe `status` field alone to determine approval.
 
-    C->>R: POST /api/recipes (with files)
-    R->>M: Process File Uploads
-    M->>S: Upload to Supabase
-    S-->>M: File URLs
-    M-->>R: Processed Files
-    R->>DB: Create Recipe Record
-    DB-->>R: Recipe Created
-    R->>MOD: Create Moderation Entry
-    MOD->>DB: Store Moderation Record
-    R->>N: Create Notification
-    N->>DB: Store Notification
-    R-->>C: 201 Created with Recipe Data
-```
+## Registration flow
 
-### Recipe Moderation Flow
-```mermaid
-sequenceDiagram
-    participant A as Admin
-    participant MC as Moderation Controller
-    participant DB as Database
-    participant N as Notification System
-    participant U as User
+1. `POST /api/auth/register` calls the authentication controller.
+2. `User.signup()` does a check of the registration fields and creates the account.
+3. The user save hook hashes the password with bcrypt.
+4. The controller sends a verification email.
+5. The controller sets an authentication cookie.
 
-    A->>MC: POST /api/moderations/:recipeId
-    MC->>DB: Update Moderation Status
-    DB-->>MC: Updated Record
-    MC->>DB: Update Recipe Status
-    DB-->>MC: Updated Recipe
-    MC->>N: Create Status Notification
-    N->>U: Send Notification
-    MC-->>A: 200 OK with Result
-```
+The login method does a check of the email and password. It does not require `isEmailVerified=true`.
+Email delivery can fail after the account exists.
 
-## 🛡️ Security Architecture
+## Recipe flow
 
-### Authentication & Authorization
-```mermaid
-graph TB
-    subgraph "Authentication Layer"
-        A[JWT Token Generation] --> B[HTTP-only Cookie Storage]
-        B --> C[Token Validation Middleware]
-        C --> D[User Context Extraction]
-    end
+1. The route does a check of the authentication cookie.
+2. Multer reads the multipart fields and files into memory.
+3. `Recipe.createRecipe()` parses the ingredient and procedure strings.
+4. The storage helper transfers supplied media to Supabase.
+5. The method does a check of the recipe fields and creates the recipe.
+6. The method creates a pending moderation record.
+7. The method stores the moderation reference on the recipe.
+8. The method creates a notification for the author.
+9. The controller returns HTTP 201 with the recipe in `result`.
 
-    subgraph "Authorization Layer"
-        D --> E[Role-based Access Control]
-        E --> F[Resource Ownership Check]
-        F --> G[Permission Validation]
-    end
+Media transfer occurs before some database checks. A later failure can leave files in storage.
+The update method can delete old media before the update completes.
 
-    subgraph "Resource Access"
-        G --> H[Admin Routes]
-        G --> I[Creator Routes]
-        G --> J[User Routes]
-    end
-```
+## Moderation and notifications
 
-### Security Measures Table
-| Layer | Security Measure | Implementation |
-|-------|-----------------|----------------|
-| **Authentication** | JWT with HTTP-only cookies | `authenticateUser` middleware |
-| **Authorization** | Role-based access control | `checkRole` middleware |
-| **Input Validation** | Zod schema validation | Validation schemas in `/validations/` |
-| **File Upload** | Type & size validation | Multer middleware with validation |
-| **Password Security** | bcrypt hashing | User model pre-save hooks |
-| **Rate Limiting** | Resend attempt tracking | `resendAttemptModel` & middleware |
-| **Error Handling** | Custom error classes | `customError.js` utility |
-| **CORS** | Origin restriction | Express CORS middleware |
+The moderation route permits `admin` and `creator` roles. The model prevents a moderator from moderating their own recipe.
+An accepted change updates the moderation record and calls the notification model.
+Recipe updates reset the related moderation record to `pending`.
 
-## 🔧 Key Design Patterns
+Notification methods write MongoDB documents during application requests.
+The API has endpoints to retrieve notifications and change their read state.
+The repository has no WebSocket server, event queue, or push notification transport.
 
-### 1. Repository Pattern
-- Models contain business logic and data access methods
-- Controllers handle HTTP layer only
-- Separation of concerns between data access and HTTP handling
+## Authentication and access
 
-### 2. Middleware Chain
-- Request validation → Authentication → Authorization → Business logic
-- Error handling at each layer
-- Consistent response formatting
+[authenticateUser.js](src/middleware/authenticateUser.js) reads only the `kulinarya_auth_token` cookie.
+It verifies the JWT and assigns the decoded payload to `req.user`.
+The payload includes a user ID and role. The middleware does not load the account for each request.
 
-### 3. Soft Delete Pattern
-- `deletedAt` timestamp instead of physical deletion
-- All queries filter out soft-deleted records
-- Recovery capability for accidental deletions
+The optional variant accepts a request without a cookie. It still rejects an invalid cookie token.
+[checkRole.js](src/middleware/checkRole.js) does a check of the token role where a route installs it.
+Some models also do a check of record ownership.
 
-### 4. Event-Driven Notifications
-- System events trigger notifications
-- Async notification creation
-- User preference-based delivery
+The cookie lasts seven days. In `prod` mode, it uses `httpOnly`, `secure`, and `sameSite: "none"`.
+Other modes use `httpOnly`, `secure: false`, and `sameSite: "lax"`.
 
-### 5. Aggregation Pipeline Pattern
-- Complex queries use MongoDB aggregation
-- Performance optimization for analytics
-- Reusable pipeline components
+Access checks differ between routes. For example, the user list requires authentication but has no administrator role check.
+Read the [API reference](API_DOCUMENTATION.md) before you make access claims.
 
-## 📊 Performance Considerations
+## Storage and email
 
-### Database Indexing Strategy
-```javascript
-// User Model Indexes
-UserSchema.index({ email: 1 }, { unique: true });
-UserSchema.index({ role: 1 });
-UserSchema.index({ deletedAt: 1 });
+[handleSupabaseUpload.js](src/utils/handleSupabaseUpload.js) uses the hardcoded bucket `kulinarya-bucket`.
+It creates names with a UUID and obtains a public URL.
+The media folders are `profile_pictures`, `recipe_pictures`, and `recipe_videos`.
 
-// Recipe Model Indexes
-RecipeSchema.index({ byUser: 1 });
-RecipeSchema.index({ status: 1 });
-RecipeSchema.index({ isFeatured: 1 });
-RecipeSchema.index({ deletedAt: 1 });
-RecipeSchema.index({ createdAt: -1 });
+Multer accepts JPEG, JPG, PNG, WebP, and MP4 MIME types. Its limit is 50 MiB per file.
+Model calls specify smaller picture limits. See the [upload table](API_DOCUMENTATION.md#media-uploads) for the effective configuration and known defect.
 
-// Moderation Model Indexes
-ModerationSchema.index({ forPost: 1 });
-ModerationSchema.index({ status: 1 });
-ModerationSchema.index({ moderatedBy: 1 });
+[emailTransporter.js](src/utils/emailTransporter.js) uses `smtp.gmail.com`, `GMAIL_USER`, and `GMAIL_PASS`.
+The mail functions create links from the selected `CLIENT_URL`.
+There is no Resend service integration.
 
-// Composite Indexes for Common Queries
-RecipeSchema.index({ status: 1, isFeatured: 1 });
-RecipeSchema.index({ byUser: 1, deletedAt: 1 });
-```
+## Queries and performance
 
-### Caching Strategy
-| Data Type | Cache Strategy | TTL | Implementation |
-|-----------|---------------|-----|----------------|
-| **User Profile** | Session-based | 1 hour | JWT token claims |
-| **Recipe Lists** | Pagination cache | 5 minutes | Redis/Memory cache |
-| **Top Sharers** | Daily cache | 24 hours | Scheduled job |
-| **Featured Recipes** | Weekly cache | 7 days | Manual refresh |
+[aggregationPipelines.js](src/utils/aggregationPipelines.js) builds MongoDB aggregation stages.
+Recipe methods combine recipe, author, moderation, reaction, comment, and view data.
+Recipe lists use page numbers. Comments, reactions, and notifications use timestamp cursors.
 
-### File Upload Optimization
-- Chunked uploads for large files
-- Compression for images
-- CDN integration for static assets
-- Async file processing queue
+The user email field has `unique: true`.
+The platform visit model defines three compound indexes with `createdAt`.
+The source does not define the recipe and moderation indexes that older guides described.
 
-## 🚀 Deployment Architecture
+The API has no application cache, Redis client, image compression step, or chunked upload implementation.
+The storage helper sets `cacheControl: "3600"` for stored objects. This setting is not an API response cache.
 
-### Production Environment
-```
-┌─────────────────────────────────────────────────────┐
-│                    Load Balancer                     │
-└──────────────┬──────────────────┬───────────────────┘
-               │                  │
-    ┌──────────▼──────┐  ┌───────▼──────────┐
-    │   Node.js App   │  │   Node.js App    │
-    │   Instance 1    │  │   Instance 2     │
-    └──────────┬──────┘  └───────┬──────────┘
-               │                  │
-    ┌──────────▼──────────────────▼──────────┐
-    │           MongoDB Cluster              │
-    │         (Primary + Replicas)           │
-    └──────────┬──────────────────┬──────────┘
-               │                  │
-    ┌──────────▼──────┐  ┌───────▼──────────┐
-    │   Supabase      │  │   Redis Cache    │
-    │   Storage       │  │                  │
-    └─────────────────┘  └──────────────────┘
-```
+## Logs and deployment boundaries
 
-### Environment Configuration
-```javascript
-// Environment-based configuration
-const config = {
-  development: {
-    mongoURI: process.env.MONGO_URI_DEV,
-    clientURL: process.env.CLIENT_URL_DEV,
-    cookieSettings: { secure: false, sameSite: 'lax' }
-  },
-  production: {
-    mongoURI: process.env.MONGO_URI_PROD,
-    clientURL: process.env.CLIENT_URL_PROD,
-    cookieSettings: { secure: true, sameSite: 'none' }
-  }
-};
-```
+Morgan writes request logs. The application also uses `console` statements.
+Some statements include the database URI, registration input, or recipe data.
+Review those statements before you collect or share logs.
 
-## 📈 Monitoring & Logging
+The application prints a message every 30 seconds. This message does not test service health.
+No dedicated health route, metrics exporter, process supervisor, reverse proxy, or CI pipeline is supplied.
 
-### Logging Strategy
-- **Morgan** for HTTP request logging
-- **Console logging** for development
-- **Structured logging** for production
-- **Error tracking** with stack traces
-
-### Health Checks
-- Database connection status
-- External service availability
-- Memory usage monitoring
-- Response time tracking
-
-### Metrics Collection
-- API response times
-- Error rates by endpoint
-- User activity patterns
-- File upload success rates
-
-## 🔄 API Versioning Strategy
-
-### Current: v1 (Implicit)
-- All endpoints under `/api/`
-- Backward compatibility maintained
-- Breaking changes documented
-
-### Future: v2 (Explicit)
-- `/api/v2/` prefix for new endpoints
-- Gradual migration path
-- Deprecation notices for v1
-
-## 🛠️ Development Workflow
-
-### Code Standards
-- ES6+ JavaScript with modules
-- Async/await pattern for async operations
-- Consistent error handling
-- Comprehensive JSDoc comments
-
-### Testing Strategy
-- Unit tests for utility functions
-- Integration tests for API endpoints
-- E2E tests for critical user flows
-- Load testing for performance validation
-
-### CI/CD Pipeline
-```
-Code Commit → Lint Check → Unit Tests → Integration Tests → Build → Deploy
-```
-
-## 🔍 Troubleshooting Guide
-
-### Common Issues & Solutions
-
-| Issue | Symptoms | Solution |
-|-------|----------|----------|
-| **Database Connection** | 500 errors, connection refused | Check MongoDB URI, network connectivity |
-| **File Upload Failures** | 413 errors, upload timeouts | Verify file size limits, Supabase config |
-| **Authentication Issues** | 401 unauthorized errors | Check JWT secret, cookie settings |
-| **Email Delivery** | Verification emails not sent | Verify SMTP configuration, check spam |
-| **Performance Issues** | Slow response times | Check database indexes, query optimization |
-
-### Debugging Tools
-- Detailed error logging
-- Request/Response logging
-- Database query logging
-- Memory usage monitoring
-
-## 📚 Additional Resources
-
-### API Documentation
-- Complete Bruno API collection in `/kulinarya-api/`
-- Postman collection export available
-- OpenAPI/Swagger documentation (planned)
-
-### Development Setup
-- Detailed setup instructions in README
-- Environment variable templates
-- Database seeding scripts
-
-### Deployment Guides
-- Docker containerization
-- Kubernetes deployment manifests
-- Cloud provider specific guides
-
----
-
-*This architecture documentation provides a comprehensive overview of the Kulinarya backend system. For specific implementation details, refer to the source code and inline documentation.*
+Use [Deployment](DEPLOYMENT.md) for runtime configuration.
+Use the [implementation gaps](API_DOCUMENTATION.md#implementation-gaps) for known source conflicts.

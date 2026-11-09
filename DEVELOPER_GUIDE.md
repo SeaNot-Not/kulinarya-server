@@ -1,758 +1,217 @@
-# Kulinarya Developer Guide
+# Developer guide
 
-## 📚 Overview
+Documentation review date: 2026-11-09.
 
-This guide provides comprehensive information for developers working on the Kulinarya backend. It covers code organization, development workflows, testing, and contribution guidelines.
+Use [Deployment](DEPLOYMENT.md) to configure the environment and start the server.
+Use the [API reference](API_DOCUMENTATION.md) for request contracts.
 
-## 🏗️ Project Structure
+## Source responsibilities
 
-### Core Architecture
-```
-src/
-├── app.js                    # Express app configuration
-├── config/                   # Configuration files
-├── controllers/              # Business logic handlers
-├── middleware/               # Custom middleware
-├── models/                   # MongoDB schemas with business logic
-├── routes/                   # API route definitions
-├── utils/                    # Utility functions
-├── validations/              # Zod validation schemas
-└── mail/                     # Email templates
-```
+| Location | Responsibility |
+| --- | --- |
+| [server.js](server.js) | Connect to MongoDB, then start the HTTP listener. |
+| [src/app.js](src/app.js) | Install middleware, mount routers, and handle unknown routes. |
+| [src/routes](src/routes) | Define HTTP methods, paths, and route access checks. |
+| [src/controllers](src/controllers) | Call models and form HTTP responses. |
+| [src/models](src/models) | Define database fields and application rules. |
+| [src/validations](src/validations) | Define Zod schemas. |
+| [src/middleware](src/middleware) | Handle authentication, roles, uploads, and errors. |
+| [src/utils](src/utils) | Support queries, storage, token checks, and notifications. |
+| [src/mail](src/mail) | Form verification and password reset emails. |
 
-### Key Design Patterns
+The source uses ES modules. Use `import` and `export` in application files.
+Most application rules are Mongoose static methods. There is no separate service layer.
 
-#### 1. Repository Pattern
-Models contain business logic and data access methods:
+## Trace an endpoint
 
-```javascript
-// Example from userModel.js
-userSchema.statics.signup = async function (signupCredentials) {
-  const { email } = signupCredentials;
-  
-  // Validate user data
-  registerUserSchema.parse(signupCredentials);
-  
-  const isEmailExists = await this.findOne({ email });
-  if (isEmailExists) throw new CustomError("Email is already in use!", 400);
-  
-  return await this.create(signupCredentials);
-};
-```
+1. Find the router mount in `src/app.js`.
+2. Find the method and relative path in the router.
+3. Read all middleware installed on that route.
+4. Read the controller and its response fields.
+5. Read the called model method and its validation schema.
+6. Read the storage, email, or notification helpers that the method calls.
+7. Compare the full path with client query or mutation hooks.
 
-#### 2. Middleware Chain Pattern
-```javascript
-// Route definition example
-router.post(
-  "/register",
-  validateRequest(registerUserSchema),  // Validation middleware
-  userRegistration                      // Controller
-);
+Do not infer server authorization from a client page or a route comment.
+Some role checks are in routers. Some ownership checks are in models.
+The HTTP `Authorization` header is allowed by CORS, but authentication reads a cookie.
 
-// Error handling middleware
-app.use(errorHandler);
-```
+## Change an endpoint
 
-#### 3. Service Layer Pattern
-Utility functions handle cross-cutting concerns:
-```javascript
-// File upload service
-const handleSupabaseUpload = async ({ file, folder, allowedTypes, maxFileSize }) => {
-  // Validation, processing, and upload logic
-};
-```
+1. Define the expected request and response fields.
+2. Define the permitted users and record owners.
+3. Update the validation schema and model method.
+4. Update the controller response.
+5. Update the route and its access middleware.
+6. Update client requests when the contract changes.
+7. Update the API reference and related guides.
+8. Do the manual checks for the changed behavior.
 
-## 🛠️ Development Setup
+Use the parsed result when a Zod transformation must affect stored data.
+A call to `.parse()` alone does not replace the original input.
+Use `CustomError` for an expected error with a specific status code.
+Review each operation before and after external service calls.
+Media files and database records are not updated in one transaction.
 
-### Prerequisites
-- Node.js 18+
-- MongoDB 6+
-- Git
-- VS Code (recommended)
+### Existing controller pattern
 
-### Installation
-```bash
-# Clone repository
-git clone <repository-url>
-cd server
+This example follows the existing recipe controller. It describes current code, not a new implementation.
 
-# Install dependencies
-npm install
+```js
+export const postNewRecipe = expressAsyncHandler(async (req, res) => {
+  const result = await Recipe.createRecipe(req);
 
-# Setup environment
-cp .env.example .env
-# Edit .env with your configuration
-
-# Start development server
-npm run dev
-```
-
-### VS Code Extensions
-- **ESLint**: Code linting
-- **Prettier**: Code formatting
-- **MongoDB for VS Code**: Database management
-- **Thunder Client**: API testing
-- **GitLens**: Git integration
-
-## 📝 Code Style Guidelines
-
-### Naming Conventions
-- **Variables**: `camelCase`
-- **Constants**: `UPPER_SNAKE_CASE`
-- **Functions**: `camelCase`
-- **Classes**: `PascalCase`
-- **Files**: `kebab-case.js`
-
-### File Structure
-```javascript
-// Model file structure
-import { Schema, model } from "mongoose";
-import "dotenv/config";
-
-// 1. Imports
-import CustomError from "../utils/customError.js";
-import { validateObjectId } from "../utils/validators.js";
-
-// 2. Schema definition
-const userSchema = new Schema(
-  {
-    // Fields with validation
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    // ... other fields
-  },
-  { timestamps: true }
-);
-
-// 3. Pre-save hooks
-userSchema.pre("save", async function (next) {
-  // Hashing, formatting, etc.
-});
-
-// 4. Static methods
-userSchema.statics.signup = async function (signupCredentials) {
-  // Business logic
-};
-
-// 5. Instance methods
-userSchema.methods.generateAuthToken = function (res) {
-  // Token generation
-};
-
-// 6. Export
-const User = model("User", userSchema);
-export default User;
-```
-
-### Error Handling
-```javascript
-// Use CustomError class
-import CustomError from "../utils/customError.js";
-
-// Throw specific errors
-throw new CustomError("User not found", 404);
-throw new CustomError("Invalid credentials", 401);
-throw new CustomError("Validation failed", 422);
-
-// Global error handler in middleware/errorHandler.js
-const errorHandler = (err, req, res, next) => {
-  const statusCode = err.statusCode || 500;
-  const message = err.message || "Internal Server Error";
-  
-  res.status(statusCode).json({
-    error: message,
-    statusCode,
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
-  });
-};
-```
-
-### Validation
-```javascript
-// Use Zod for validation
-import { z } from "zod";
-
-const registerUserSchema = z.object({
-  email: z.string().email("Invalid email format"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
-  firstName: z.string().min(2, "First name is required"),
-  lastName: z.string().min(2, "Last name is required"),
-});
-
-// In controller
-registerUserSchema.parse(req.body);
-```
-
-## 🔧 Adding New Features
-
-### Step 1: Define the Model
-```javascript
-// src/models/newModel.js
-import { Schema, model } from "mongoose";
-
-const newSchema = new Schema(
-  {
-    // Define fields
-    name: {
-      type: String,
-      required: true,
-    },
-    // ... other fields
-  },
-  { timestamps: true }
-);
-
-// Add static methods
-newSchema.statics.createNew = async function (data) {
-  // Business logic
-};
-
-export default model("New", newSchema);
-```
-
-### Step 2: Create Validation Schema
-```javascript
-// src/validations/newValidation.js
-import { z } from "zod";
-
-export const createNewSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  // ... other validations
-});
-
-export const updateNewSchema = createNewSchema.partial();
-```
-
-### Step 3: Create Controller
-```javascript
-// src/controllers/newController.js
-import New from "../models/newModel.js";
-import { createNewSchema } from "../validations/newValidation.js";
-import CustomError from "../utils/customError.js";
-
-export const createNew = asyncHandler(async (req, res) => {
-  // Validate request
-  createNewSchema.parse(req.body);
-  
-  // Business logic
-  const newItem = await New.createNew(req.body);
-  
-  // Response
   res.status(201).json({
-    message: "New item created successfully",
-    data: newItem,
-  });
-});
-
-// ... other controller methods
-```
-
-### Step 4: Create Routes
-```javascript
-// src/routes/newRoutes.js
-import express from "express";
-import { createNew, getNew, updateNew, deleteNew } from "../controllers/newController.js";
-import authenticateUser from "../middleware/authenticateUser.js";
-import checkRole from "../middleware/checkRole.js";
-
-const router = express.Router();
-
-router.post("/", authenticateUser, createNew);
-router.get("/:id", getNew);
-router.put("/:id", authenticateUser, updateNew);
-router.delete("/:id", authenticateUser, checkRole(["admin"]), deleteNew);
-
-export default router;
-```
-
-### Step 5: Register Routes
-```javascript
-// src/app.js
-import newRoutes from "./routes/newRoutes.js";
-
-// Add to routes section
-app.use("/api/news", newRoutes);
-```
-
-## 🧪 Testing
-
-### Unit Testing Setup
-```javascript
-// test/userModel.test.js
-import User from "../src/models/userModel.js";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
-
-describe("User Model", () => {
-  let mongoServer;
-  
-  beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
-    await mongoose.connect(mongoServer.getUri());
-  });
-  
-  afterAll(async () => {
-    await mongoose.disconnect();
-    await mongoServer.stop();
-  });
-  
-  test("should create a new user", async () => {
-    const userData = {
-      email: "test@example.com",
-      password: "password123",
-      firstName: "John",
-      lastName: "Doe",
-    };
-    
-    const user = await User.signup(userData);
-    expect(user.email).toBe(userData.email);
-    expect(user.isEmailVerified).toBe(false);
+    success: true,
+    statusCode: 201,
+    message: "Recipe Submitted For Moderation",
+    result,
   });
 });
 ```
 
-### API Testing with Bruno
-The project includes a Bruno API collection in `/kulinarya-api/`. To use it:
+Read [recipeController.js](src/controllers/recipeController.js) for imports and other handlers.
+The response message is an exact source string. Do not change protocol examples during a language-only edit.
 
-1. Install Bruno: `npm install -g @usebruno/cli`
-2. Import the collection
-3. Set environment variables
-4. Run tests: `bruo run kulinarya-api`
+## Validation and uploads
 
-### Manual Testing Checklist
-- [ ] Authentication flows
-- [ ] CRUD operations
-- [ ] File uploads
-- [ ] Validation errors
-- [ ] Error handling
-- [ ] Pagination
-- [ ] Search and filtering
+The Zod files describe request rules. The Mongoose schemas describe stored fields.
+These rules differ in some places. For example, ingredient quantities arrive as strings and are stored as numbers.
 
-## 🔍 Debugging
+Recipe creation and update parse JSON strings from multipart text fields.
+Do not send direct arrays from an old Bruno JSON example.
+Profile uploads use the file field `profilePictureUrl`, not `profilePicture`.
+Recipe uploads use `mainPicture`, `additionalPictures`, and `video`.
 
-### Common Issues and Solutions
+Use the [media upload table](API_DOCUMENTATION.md#media-uploads) for types and limits.
+The Multer filter rejects MOV files before the model helper runs.
+The helper's oversized-file error contains an undefined variable.
 
-#### 1. Database Connection Issues
-```javascript
-// Check MongoDB connection
-mongoose.connection.on("connected", () => {
-  console.log("MongoDB Connected");
-});
+Recipe update tests must supply retained picture URLs and complete array fields.
+The model converts omitted array fields to empty arrays and can remove existing media.
+Use test media for update and deletion checks.
 
-mongoose.connection.on("error", (err) => {
-  console.error("MongoDB Connection Error:", err);
-});
+## Error handling
 
-// Enable debug logging
-mongoose.set("debug", process.env.NODE_ENV === "development");
+Most asynchronous controllers use `express-async-handler`.
+The global middleware handles Zod, JWT, Multer, Mongoose, duplicate-key, and custom errors.
+Read [errorHandler.js](src/middleware/errorHandler.js) for the response structure.
+
+Error formats are not identical across all endpoints.
+The fallback 404 and reset-token verification responses bypass parts of the common format.
+The comment deletion controller does not use the asynchronous wrapper used by most other controllers.
+Review error propagation when you change that path.
+
+## Manual API checks
+
+The repository does not have an automated test suite.
+`npm test` prints `Error: no test specified` and exits with status 1.
+No lint or documentation-generation script is defined.
+
+1. Start the API against a disposable database.
+2. Open the Bruno collection in `kulinarya-api`.
+3. Replace saved credentials, tokens, and IDs with test values.
+4. Do a check of each method, path, and body against the route source.
+5. Log in and retain the authentication cookie.
+6. Send the request with a valid body.
+7. Compare the HTTP status and response fields with the controller.
+8. Send invalid input and confirm the error response.
+9. Repeat protected requests without a cookie and with an unauthorized test account.
+10. Confirm database changes and external files when the operation changes data.
+
+The collection is a set of saved requests. It has duplicate authentication folders and stale examples.
+See the [collection differences](API_DOCUMENTATION.md#bruno-collection) before use.
+A successful HTTP response alone does not verify database or storage cleanup.
+
+### Useful scenarios
+
+| Change area | Scenarios |
+| --- | --- |
+| Authentication | Valid login, wrong password, missing cookie, expired token, logout. |
+| Role checks | `user`, `admin`, and `creator` accounts; rejected self-moderation. |
+| Recipes | Creation, approved list, pending list, update, feature toggle, owner deletion. |
+| Uploads | Small valid picture, invalid MIME type, large picture, MP4, rejected MOV. |
+| Comments | Creation, owner update, rejected foreign update, deletion, cursor pagination. |
+| Reactions | New value, same value, changed value, restored soft-deleted reaction. |
+| Notifications | Retrieval, unread count, recipient checks, read changes, deletion. |
+| Email | Verification link, resend interval, password reset link, used token. |
+| Analytics | First visit or view, repeated request within the counting interval. |
+
+## Debugging
+
+Use the Node.js inspector when source-level debugging is necessary:
+
+```sh
+node --inspect server.js
 ```
 
-#### 2. File Upload Problems
-```javascript
-// Debug Multer middleware
-console.log("Request files:", req.files);
-console.log("Request body:", req.body);
+Read the process output for database, route, storage, and SMTP errors.
+Do not share unredacted logs. Current log statements can include database credentials and registration passwords.
 
-// Check file validation
-const allowedTypes = ["jpeg", "png", "jpg", "webp"];
-const maxFileSize = 2 * 1024 * 1024; // 2MB
-```
+| Problem | Source to inspect |
+| --- | --- |
+| Wrong environment selected | `src/utils/environmentConditions.js` and exact `NODE_ENV=prod` comparison. |
+| Authentication fails | `authenticateUser.js`, `tokenUtils.js`, and `User.generateAuthToken()`. |
+| Upload fails | Multer filter, model helper options, and `handleSupabaseUpload.js`. |
+| Email fails | `emailTransporter.js` and the relevant mail function. |
+| Recipe counts differ | Aggregation stages and related moderation records. |
+| Pagination misses items | Cursor timestamp filter and equal timestamps. |
 
-#### 3. Authentication Issues
-```javascript
-// Debug JWT tokens
-console.log("Request cookies:", req.cookies);
-console.log("Decoded user:", req.user);
+## Database and query changes
 
-// Check token expiration
-const token = jwt.verify(token, process.env.JWT_SECRET);
-console.log("Token expires:", new Date(token.exp * 1000));
-```
+Recipe aggregations combine multiple collections. Read the full pipeline before you change a field or reference.
+The approval filter uses moderation records rather than the recipe `status` field.
+Soft deletion uses `deletedAt`. Each query controls whether deleted records are excluded.
+For example, the announcement management list includes deleted records.
 
-### Logging Strategy
-```javascript
-// Development logging
-if (process.env.NODE_ENV === "development") {
-  console.log("DEBUG:", {
-    endpoint: req.originalUrl,
-    method: req.method,
-    params: req.params,
-    query: req.query,
-    body: req.body,
-    user: req.user,
-  });
-}
+The user email field declares a unique index.
+The platform visit model defines compound indexes for visitor type, user, and guest with creation time.
+Do not assume that recipe, moderation, or notification indexes exist because an old guide listed them.
 
-// Production logging
-const logger = {
-  info: (message, data) => console.log(JSON.stringify({ level: "info", message, data })),
-  error: (message, error) => console.error(JSON.stringify({ level: "error", message, error: error.message, stack: error.stack })),
-  warn: (message, data) => console.warn(JSON.stringify({ level: "warn", message, data })),
-};
-```
+The repository has no migration runner. For a data change:
 
-## 📈 Performance Optimization
+1. Define the old and new field rules.
+2. Prepare the migration and rollback procedures.
+3. Make a database backup through the database provider.
+4. Run the migration on a database copy.
+5. Verify references, counts, and changed queries.
+6. Arrange the production change through the project release process.
 
-### Database Optimization
+The source has no Redis cache, API response cache, image compression, or chunked upload system.
+Treat such changes as new work with separate design and verification.
 
-#### Indexing Strategy
-```javascript
-// Add indexes for common queries
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ role: 1 });
-userSchema.index({ deletedAt: 1 });
+## Documentation changes
 
-recipeSchema.index({ byUser: 1, status: 1 });
-recipeSchema.index({ foodCategory: 1, originProvince: 1 });
-recipeSchema.index({ createdAt: -1 });
-recipeSchema.index({ isFeatured: 1, status: 1 });
-```
+Use ASD-STE100 Simplified Technical English principles for prose.
+Use short sentences, active verbs, and consistent software technical names.
+Keep each procedure step focused on one action.
+Keep paths, field names, code examples, and response strings exact.
 
-#### Query Optimization
-```javascript
-// Use lean() for read-only queries
-const users = await User.find({ role: "user" }).lean();
+Use at most 20 words for a procedural sentence and 25 words for a descriptive sentence where practical.
+Use complete sentences. Do not remove articles or use contractions to shorten text.
+Use a noun such as “authentication cookie” consistently for the same item.
+Use “Do a check of” when an instruction requires a check.
 
-// Use select() to limit fields
-const user = await User.findById(userId).select("email firstName lastName");
+The source of the writing rules is [ASD-STE100](https://www.asd-ste100.org/).
+This documentation review is not an independent certification of full dictionary compliance.
 
-// Use pagination for large datasets
-const page = parseInt(req.query.page) || 1;
-const limit = parseInt(req.query.limit) || 10;
-const skip = (page - 1) * limit;
+Update these files when their subjects change:
 
-const recipes = await Recipe.find(query)
-  .skip(skip)
-  .limit(limit)
-  .lean();
-```
+| Subject | Documentation |
+| --- | --- |
+| Setup or commands | `README.md` and `DEPLOYMENT.md`. |
+| Method, path, fields, or access | `API_DOCUMENTATION.md`. |
+| Model or request flow | `ARCHITECTURE.md`. |
+| Development procedure | `DEVELOPER_GUIDE.md`. |
+| Guide contents or known limits | `DOCS_TABLE_OF_CONTENTS.md` and `DOCUMENTATION_SUMMARY.md`. |
 
-#### Aggregation Pipelines
-```javascript
-// Use aggregation for complex queries
-const topSharers = await User.aggregate([
-  { $match: { deletedAt: null } },
-  {
-    $lookup: {
-      from: "recipes",
-      localField: "_id",
-      foreignField: "byUser",
-      as: "recipes",
-    },
-  },
-  { $unwind: "$recipes" },
-  // ... more stages
-]);
-```
+## Release checks
 
-### Caching Strategy
+1. Review the diff for code, contract, and documentation changes.
+2. Do the manual checks for the changed functions.
+3. Record any tests that could not run and the reason.
+4. Read the [deployment procedure](DEPLOYMENT.md#production-process).
+5. Confirm the selected environment, HTTPS access, and credentialed requests on the target host.
 
-#### Redis Implementation Example
-```javascript
-// src/utils/cache.js
-import Redis from "ioredis";
-
-const redis = new Redis(process.env.REDIS_URL);
-
-export const cache = {
-  get: async (key) => {
-    const data = await redis.get(key);
-    return data ? JSON.parse(data) : null;
-  },
-  
-  set: async (key, value, ttl = 3600) => {
-    await redis.setex(key, ttl, JSON.stringify(value));
-  },
-  
-  del: async (key) => {
-    await redis.del(key);
-  },
-};
-
-// Usage in controller
-export const getFeaturedRecipes = asyncHandler(async (req, res) => {
-  const cacheKey = `featured_recipes_${req.query.page}_${req.query.limit}`;
-  
-  // Try cache first
-  const cached = await cache.get(cacheKey);
-  if (cached) {
-    return res.json(cached);
-  }
-  
-  // Fetch from database
-  const recipes = await Recipe.getFeaturedRecipes(req.query);
-  
-  // Cache for 5 minutes
-  await cache.set(cacheKey, recipes, 300);
-  
-  res.json(recipes);
-});
-```
-
-## 🔄 Database Migrations
-
-### Schema Changes
-```javascript
-// Migration script example
-const migrateUsers = async () => {
-  // Add new field with default value
-  await User.updateMany(
-    { bio: { $exists: false } },
-    { $set: { bio: "" } }
-  );
-  
-  // Rename field
-  await User.updateMany(
-    {},
-    { $rename: { "oldField": "newField" } }
-  );
-  
-  // Remove field
-  await User.updateMany(
-    {},
-    { $unset: { "deprecatedField": "" } }
-  );
-};
-```
-
-### Data Migration
-```javascript
-// Batch processing for large datasets
-const batchSize = 1000;
-let skip = 0;
-let hasMore = true;
-
-while (hasMore) {
-  const users = await User.find({})
-    .skip(skip)
-    .limit(batchSize)
-    .lean();
-  
-  if (users.length === 0) {
-    hasMore = false;
-    break;
-  }
-  
-  // Process batch
-  for (const user of users) {
-    // Migration logic
-    await User.findByIdAndUpdate(user._id, {
-      $set: { migratedField: "value" },
-    });
-  }
-  
-  skip += batchSize;
-  console.log(`Processed ${skip} users`);
-}
-```
-
-## 🚀 Deployment Checklist
-
-### Pre-Deployment
-- [ ] Run tests: `npm test`
-- [ ] Check linting: `npm run lint`
-- [ ] Update dependencies: `npm outdated`
-- [ ] Update documentation
-- [ ] Backup database
-
-### Deployment Steps
-1. **Merge to main branch**
-2. **Run CI/CD pipeline**
-3. **Deploy to staging**
-4. **Run smoke tests**
-5. **Deploy to production**
-6. **Monitor for issues**
-
-### Post-Deployment
-- [ ] Verify health checks
-- [ ] Monitor error rates
-- [ ] Check performance metrics
-- [ ] Update deployment documentation
-
-## 📚 API Documentation
-
-### Generating Documentation
-```bash
-# Install documentation generator
-npm install -g apidoc
-
-# Generate documentation
-apidoc -i src/ -o docs/
-```
-
-### Documentation Standards
-```javascript
-/**
- * @api {POST} /api/auth/register Register User
- * @apiName RegisterUser
- * @apiGroup Authentication
- * @apiVersion 1.0.0
- *
- * @apiBody {String} email User email
- * @apiBody {String} password User password
- * @apiBody {String} firstName User first name
- * @apiBody {String} lastName User last name
- * @apiBody {String} [middleName] User middle name
- *
- * @apiSuccess {String} message Success message
- * @apiSuccess {Object} data User data
- * @apiSuccess {String} data._id User ID
- * @apiSuccess {String} data.email User email
- *
- * @apiError (400) {String} error Validation error
- * @apiError (409) {String} error Email already exists
- */
-export const userRegistration = asyncHandler(async (req, res) => {
-  // Implementation
-});
-```
-
-## 🤝 Contribution Guidelines
-
-### Workflow
-1. **Fork the repository**
-2. **Create feature branch**
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-3. **Make changes**
-4. **Write tests**
-5. **Update documentation**
-6. **Submit pull request**
-
-### Code Review Checklist
-- [ ] Code follows style guidelines
-- [ ] Tests pass
-- [ ] Documentation updated
-- [ ] No security vulnerabilities
-- [ ] Performance considered
-- [ ] Error handling implemented
-
-### Commit Message Convention
-```
-type(scope): description
-
-feat(auth): add email verification
-fix(recipes): fix file upload validation
-docs(readme): update installation instructions
-style: format code with prettier
-refactor(users): extract validation logic
-test(auth): add login tests
-chore: update dependencies
-```
-
-## 🔒 Security Best Practices
-
-### Input Validation
-```javascript
-// Always validate input
-const validateInput = (data, schema) => {
-  try {
-    return schema.parse(data);
-  } catch (error) {
-    throw new CustomError(error.errors[0].message, 422);
-  }
-};
-
-// Sanitize user input
-const sanitizeInput = (input) => {
-  return input.trim().replace(/[<>]/g, "");
-};
-```
-
-### Authentication Security
-```javascript
-// Secure cookie settings
-res.cookie("kulinarya_auth_token", token, {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-});
-
-// Password hashing
-const salt = await bcrypt.genSalt(10);
-const hashedPassword = await bcrypt.hash(password, salt);
-```
-
-### Rate Limiting
-```javascript
-// Implement rate limiting
-const rateLimit = require("express-rate-limit");
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per window
-  message: "Too many attempts, please try again later",
-});
-
-app.use("/api/auth/login", authLimiter);
-```
-
-## 📊 Monitoring and Metrics
-
-### Health Check Endpoints
-```javascript
-// Add health check endpoint
-router.get("/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-    memory: process.memoryUsage(),
-  });
-});
-```
-
-### Performance Metrics
-```javascript
-// Add response time logging
-app.use((req, res, next) => {
-  const start = Date.now();
-  
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
-  });
-  
-  next();
-});
-```
-
-## 🆘 Getting Help
-
-### Common Problems
-1. **Database connection refused**
-   - Check MongoDB service status
-   - Verify connection string
-   - Check firewall settings
-
-2. **File upload fails**
-   - Check Supabase credentials
-   - Verify bucket permissions
-   - Check file size limits
-
-3. **Email not sending**
-   - Verify SMTP configuration
-   - Check email service status
-   - Review email logs
-
-### Debugging Tools
-- **Node.js Inspector**: `node --inspect server.js`
-- **MongoDB Compass**: GUI for database
-- **Postman/Bruno**: API testing
-- **Winston**: Structured logging
-
-### Support Channels
-- **GitHub Issues**: Bug reports and feature requests
-- **Documentation**: This guide and API docs
-- **Code Review**: Peer review process
-- **Team Chat**: Development team communication
-
----
-
-*This developer guide provides comprehensive information for working with the Kulinarya backend. Always refer to the latest code and documentation for the most up-to-date information.*
+The repository has no enforced branch strategy, staging pipeline, or automated release workflow.
+Do not infer one from example names in older guides.

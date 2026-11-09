@@ -1,269 +1,76 @@
-# Kulinarya Backend Documentation Summary
+# Documentation review summary
 
-## 📚 Documentation Overview
+Review date: 2026-11-09.
 
-This repository now contains comprehensive documentation for the Kulinarya Recipe Sharing Platform backend. The documentation is organized into several focused documents:
+## Review scope
 
-### 📋 **README.md** - Project Overview
-- **Purpose**: High-level introduction and quick start guide
-- **Contents**:
-  - Project description and features
-  - Tech stack and architecture overview
-  - Quick installation instructions
-  - API endpoint summary
-  - Basic configuration guide
+This review covers the seven Markdown guides in this repository.
+It also corrects the authentication prose in the recipe creation Bruno request.
+The review compares documentation with source files and package configuration.
+It does not change application code or executable Bruno request definitions.
 
-### 🏗️ **ARCHITECTURE.md** - System Architecture
-- **Purpose**: Detailed technical architecture and design patterns
-- **Contents**:
-  - System architecture diagrams
-  - Database schema design
-  - Data flow diagrams
-  - Security architecture
-  - Performance considerations
-  - Deployment architecture
-  - Design patterns used
+The guides use ASD-STE100 Simplified Technical English principles.
+The revision uses short sentences, direct instructions, and consistent software technical names.
+Code identifiers, request fields, paths, and response strings retain their exact forms.
+This review does not certify full dictionary compliance.
 
-### 🔗 **API_DOCUMENTATION.md** - API Reference
-- **Purpose**: Complete API endpoint documentation
-- **Contents**:
-  - All endpoint specifications with examples
-  - Request/response formats
-  - Authentication details
-  - Error codes and handling
-  - File upload specifications
-  - Role-based access control
-  - Pagination and search parameters
+## Corrected information
 
-### 🚀 **DEPLOYMENT.md** - Deployment Guide
-- **Purpose**: Step-by-step deployment instructions
-- **Contents**:
-  - Local development setup
-  - Docker deployment
-  - Cloud deployment (AWS EC2)
-  - Database setup (MongoDB Atlas)
-  - File storage setup (Supabase)
-  - Email service setup (Resend)
-  - Security configuration
-  - Monitoring and maintenance
-  - Troubleshooting guide
+| Subject | Current information |
+| --- | --- |
+| Email transport | Nodemailer uses Gmail SMTP with `GMAIL_USER` and `GMAIL_PASS`. Resend is not configured. |
+| Environment selection | The literal value `prod` selects production URLs and secure cookie settings. |
+| Storage access | The server uses `SUPABASE_SERVICE_ROLE_KEY` and the hardcoded bucket `kulinarya-bucket`. |
+| Authentication | Protected routes read the authentication cookie, not a bearer header. |
+| Initial administrator | A root `GET /` request can create the account. Startup alone does not create it. |
+| Recipe routes | Public reads use `/api/recipes/approved` and `/api/recipes/approved/:recipeId`. |
+| Update methods | Recipe, profile, comment, moderation, and announcement updates use their defined `PATCH` routes. |
+| Roles | Both `admin` and `creator` can moderate recipes and manage announcements. |
+| User management | Several user routes require authentication without an administrator role check. |
+| Recipe requests | Ingredient and procedure arrays arrive as JSON strings in multipart fields. |
+| Upload types | Recipe videos pass the Multer filter only as MP4. Profile pictures use JPEG or PNG. |
+| Notifications | Clients retrieve stored records through HTTP. There is no live notification connection. |
+| Pagination | Recipe lists use pages. Comments, reactions, and notifications use timestamp cursors. |
+| Tests and scripts | `npm test` is a failing placeholder. There is no lint or build script. |
+| Infrastructure | Docker, AWS, reverse proxy, CI, and health endpoint examples were not repository implementations. |
+| Performance | There is no Redis cache, API response cache, image compression, or chunked upload implementation. |
+| License | The package manifest declares `ISC`; there is no separate license file. |
 
-### 🛠️ **DEVELOPER_GUIDE.md** - Developer Handbook
-- **Purpose**: Guide for developers working on the codebase
-- **Contents**:
-  - Project structure explanation
-  - Code style guidelines
-  - Adding new features workflow
-  - Testing strategies
-  - Debugging techniques
-  - Performance optimization
-  - Database migrations
-  - Contribution guidelines
-  - Security best practices
+The revised API reference covers all 54 methods in the ten route files.
+The root route is documented separately because it can change account data.
 
-## 🎯 Key Features Documented
+## Source checks
 
-### Core System Components
-1. **User Management System**
-   - Registration with email verification
-   - Authentication with JWT tokens
-   - Role-based access control (Admin, Creator, User)
-   - Profile management with file uploads
+The review used these source groups:
 
-2. **Recipe Management**
-   - Complete CRUD operations for recipes
-   - Media uploads (images and videos)
-   - Categorization and search
-   - Moderation workflow
-   - Featured recipes system
+- `server.js`, `src/app.js`, and `package.json` for startup, mounts, scripts, and dependencies.
+- `src/routes` for method, path, and route middleware checks.
+- `src/controllers` for response fields and status codes.
+- `src/models` and `src/validations` for data fields and application rules.
+- `src/utils` and `src/mail` for environment, storage, tokens, email, and errors.
+- `kulinarya-api` for saved request differences.
 
-3. **Engagement Features**
-   - Reactions (heart, drool, neutral)
-   - Comments system with pagination
-   - Post view tracking
-   - User notifications
+The review did not start the API or connect to MongoDB, Supabase, or Gmail.
+No live account, email, media, deployment, performance, or security result is asserted.
 
-4. **Admin Features**
-   - Recipe moderation and approval
-   - User management
-   - Announcement system
-   - Platform analytics
+## Known limits
 
-5. **Infrastructure**
-   - File storage with Supabase
-   - Email service integration
-   - Rate limiting and security
-   - Comprehensive error handling
+The [API reference](API_DOCUMENTATION.md#implementation-gaps) records source defects and inconsistent checks.
+These include reaction response field names, recipe edit ownership logic, media update behavior, and the upload size error.
+Profile updates and account deletion have access limits that older guides did not state accurately.
+Password reset requires an integration test of the token sent by email.
 
-## 📊 Database Schema Summary
+The Bruno collection has old IDs, tokens, credentials, methods, paths, and JSON bodies.
+Its executable requests remain unchanged in this documentation review.
+Use the [current reference](API_DOCUMENTATION.md#bruno-collection) before you send those requests.
 
-### Main Collections
-```mermaid
-graph TD
-    A[Users] --> B[Recipes]
-    B --> C[Moderations]
-    B --> D[Reactions]
-    B --> E[Comments]
-    B --> F[PostViews]
-    A --> G[Notifications]
-    A --> H[Announcements]
-    A --> I[PlatformVisits]
-    A --> J[ResendAttempts]
-    A --> K[ResetTokens]
-```
+The source uses Zod in multiple paths, but some methods discard parsed results.
+Do not infer complete input transformation, sanitization, or XSS protection from the presence of a schema library.
+Mongoose is a MongoDB library. Its use is not evidence of a separate SQL injection prevention system.
 
-### Key Relationships
-- **Users** → **Recipes** (One-to-Many)
-- **Recipes** → **Moderations** (One-to-One)
-- **Recipes** → **Reactions/Comments/Views** (One-to-Many)
-- **Users** → **Notifications** (One-to-Many)
+## Maintain the documentation
 
-## 🔐 Security Implementation
-
-### Authentication & Authorization
-- JWT tokens stored in HTTP-only cookies
-- Password hashing with bcrypt
-- Email verification system
-- Password reset functionality
-- Role-based access control
-
-### Input Validation & Sanitization
-- Zod schema validation for all inputs
-- File type and size validation
-- XSS protection
-- SQL injection prevention (Mongoose)
-
-### Rate Limiting
-- Email resend attempts tracking
-- Password reset attempts limiting
-- API request rate limiting
-
-## 🚀 Deployment Options
-
-### 1. **Local Development**
-- Quick setup with npm
-- MongoDB local instance
-- Development environment configuration
-
-### 2. **Docker Deployment**
-- Containerized application
-- MongoDB in separate container
-- Easy scaling and management
-
-### 3. **Cloud Deployment (AWS)**
-- EC2 instance setup
-- MongoDB Atlas integration
-- Supabase for file storage
-- Resend for email services
-
-## 🧪 Testing Strategy
-
-### Manual Testing
-- Bruno API collection included
-- Comprehensive test scenarios
-- Environment-specific testing
-
-### Automated Testing (Planned)
-- Unit tests for models and utilities
-- Integration tests for API endpoints
-- E2E tests for critical user flows
-
-## 📈 Performance Considerations
-
-### Database Optimization
-- Strategic indexing on frequently queried fields
-- Aggregation pipelines for complex queries
-- Connection pooling configuration
-
-### Caching Strategy
-- Session-based caching for user data
-- Recipe listing pagination cache
-- Daily cache for top sharers
-- Weekly cache for featured recipes
-
-### File Upload Optimization
-- Chunked uploads for large files
-- Image compression
-- CDN integration for static assets
-
-## 🔄 Development Workflow
-
-### Branch Strategy
-- `main`: Production-ready code
-- `develop`: Integration branch
-- `feature/*`: New features
-- `bugfix/*`: Bug fixes
-- `hotfix/*`: Critical production fixes
-
-### Code Review Process
-1. Create feature branch
-2. Implement changes with tests
-3. Update documentation
-4. Submit pull request
-5. Code review by team
-6. Merge to develop branch
-7. Deploy to staging
-8. Production deployment
-
-## 🆘 Support and Troubleshooting
-
-### Common Issues
-- Database connection problems
-- File upload failures
-- Email delivery issues
-- Authentication errors
-
-### Debugging Tools
-- Detailed logging in development
-- MongoDB query logging
-- Request/response logging
-- Error tracking with stack traces
-
-### Monitoring
-- Application health checks
-- Performance metrics
-- Error rate monitoring
-- User activity tracking
-
-## 📝 Documentation Maintenance
-
-### Keeping Documentation Updated
-1. **When adding new features**: Update all relevant documentation
-2. **When changing APIs**: Update API documentation
-3. **When modifying architecture**: Update architecture documentation
-4. **When deploying changes**: Update deployment guide
-5. **Regular reviews**: Quarterly documentation review
-
-### Documentation Standards
-- Use clear, concise language
-- Include code examples
-- Add diagrams for complex concepts
-- Keep examples up-to-date
-- Cross-reference between documents
-
-## 🎉 Next Steps
-
-### Immediate Actions
-1. Review and test the documentation
-2. Update environment-specific configurations
-3. Set up monitoring and alerting
-4. Implement automated testing
-
-### Future Enhancements
-1. Add OpenAPI/Swagger documentation
-2. Implement comprehensive test suite
-3. Add performance monitoring dashboard
-4. Create developer onboarding checklist
-5. Add API versioning strategy
-
-## 📞 Contact and Support
-
-For questions or issues:
-- **GitHub Issues**: Bug reports and feature requests
-- **Documentation**: Refer to these guides
-- **Development Team**: Internal communication channels
-- **Production Support**: Dedicated support rotation
-
----
-
-*This documentation provides a comprehensive overview of the Kulinarya backend system. All documents should be kept up-to-date as the system evolves. For the latest information, always refer to the source code and actual implementation.*
+Update the guide that describes each source change.
+Use the [index](DOCS_TABLE_OF_CONTENTS.md) to find the correct guide.
+Keep unimplemented proposals separate from current behavior.
+Record a test result only after the test runs against the relevant services.
